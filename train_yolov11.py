@@ -196,22 +196,38 @@ def main():
         raise
 
     print(f"📥 Loading model: {args.model}")
-    # If the model path isn't a file, try to download from --weights-url if provided
+    
+    # Auto-download YOLOv11 weights if not present
     model_path = Path(args.model)
     if not model_path.exists():
-        if args.weights_url:
-            import urllib.request
-            try:
-                print(f"Downloading weights from {args.weights_url} to {model_path.name} ...")
-                urllib.request.urlretrieve(args.weights_url, str(model_path))
-                print("✅ Download complete")
-            except Exception as e:
-                print("Failed to download weights:", e)
-                raise
-        else:
-            print(f"Model file {model_path} not found. Provide --weights-url or place the weights locally.")
-            raise FileNotFoundError(f"{model_path} does not exist")
-    model = YOLO(str(model_path))
+        # Try ultralytics hub auto-download first (easiest)
+        print(f"⬇️  Model not found locally. Attempting auto-download from Ultralytics...")
+        try:
+            # YOLO() will auto-download from ultralytics if given standard name
+            model = YOLO(args.model)
+            print(f"✅ Successfully loaded {args.model}")
+        except Exception as e1:
+            # Fallback: try manual download if --weights-url provided
+            if args.weights_url:
+                import urllib.request
+                try:
+                    print(f"⬇️  Downloading from custom URL: {args.weights_url}")
+                    urllib.request.urlretrieve(args.weights_url, str(model_path))
+                    print("✅ Download complete")
+                    model = YOLO(str(model_path))
+                except Exception as e2:
+                    print(f"❌ Failed to download from URL: {e2}")
+                    raise
+            else:
+                print(f"❌ Model '{args.model}' not found.")
+                print(f"   Ultralytics auto-download failed: {e1}")
+                print(f"\n💡 Solutions:")
+                print(f"   1. Use standard YOLO names: yolov11n.pt, yolov11s.pt, yolov11m.pt, yolov11l.pt, yolov11x.pt")
+                print(f"   2. Download manually: https://github.com/ultralytics/assets/releases/")
+                print(f"   3. Provide custom URL: --weights-url https://...")
+                raise FileNotFoundError(f"{model_path} does not exist")
+    else:
+        model = YOLO(str(model_path))
 
     # Optimized hyperparameters for 4-class CCTV event detection (95%+ mAP target)
     train_kwargs = dict(
