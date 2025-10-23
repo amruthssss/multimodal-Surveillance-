@@ -1,0 +1,4 @@
+train: /path/to/yolo_ready/images/train
+val: /path/to/yolo_ready/images/val
+nc: 4
+names: ['fire','vehicle_accident','fighting','explosion']

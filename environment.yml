@@ -1,0 +1,14 @@
+name: yolov11-train
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+    - ultralytics
+    - tqdm
+    - pandas
+    - matplotlib
