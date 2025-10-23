@@ -200,33 +200,42 @@ def main():
     # Auto-download YOLOv11 weights if not present
     model_path = Path(args.model)
     if not model_path.exists():
-        # Try ultralytics hub auto-download first (easiest)
-        print(f"⬇️  Model not found locally. Attempting auto-download from Ultralytics...")
-        try:
-            # YOLO() will auto-download from ultralytics if given standard name
-            model = YOLO(args.model)
-            print(f"✅ Successfully loaded {args.model}")
-        except Exception as e1:
-            # Fallback: try manual download if --weights-url provided
-            if args.weights_url:
-                import urllib.request
-                try:
-                    print(f"⬇️  Downloading from custom URL: {args.weights_url}")
-                    urllib.request.urlretrieve(args.weights_url, str(model_path))
-                    print("✅ Download complete")
-                    model = YOLO(str(model_path))
-                except Exception as e2:
-                    print(f"❌ Failed to download from URL: {e2}")
-                    raise
-            else:
-                print(f"❌ Model '{args.model}' not found.")
-                print(f"   Ultralytics auto-download failed: {e1}")
+        # Map of YOLOv11 model variants to their download URLs
+        YOLO11_URLS = {
+            'yolov11n.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt',
+            'yolov11s.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11s.pt',
+            'yolov11m.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11m.pt',
+            'yolov11l.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11l.pt',
+            'yolov11x.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11x.pt',
+        }
+        
+        download_url = args.weights_url or YOLO11_URLS.get(args.model)
+        
+        if download_url:
+            import urllib.request
+            try:
+                print(f"⬇️  Downloading {args.model} from Ultralytics...")
+                print(f"    URL: {download_url}")
+                urllib.request.urlretrieve(download_url, str(model_path))
+                print(f"✅ Successfully downloaded {args.model}")
+                model = YOLO(str(model_path))
+            except Exception as e:
+                print(f"❌ Download failed: {e}")
                 print(f"\n💡 Solutions:")
-                print(f"   1. Use standard YOLO names: yolov11n.pt, yolov11s.pt, yolov11m.pt, yolov11l.pt, yolov11x.pt")
-                print(f"   2. Download manually: https://github.com/ultralytics/assets/releases/")
-                print(f"   3. Provide custom URL: --weights-url https://...")
-                raise FileNotFoundError(f"{model_path} does not exist")
+                print(f"   1. Check your internet connection")
+                print(f"   2. Download manually from: {download_url}")
+                print(f"      Save to: {model_path.resolve()}")
+                print(f"   3. Try a different model: yolov11n.pt (smallest/fastest)")
+                raise FileNotFoundError(f"Failed to download {args.model}")
+        else:
+            print(f"❌ Unknown model: {args.model}")
+            print(f"\n💡 Available YOLOv11 models:")
+            for name in YOLO11_URLS.keys():
+                print(f"   - {name}")
+            print(f"\nOr provide custom URL: --weights-url https://...")
+            raise FileNotFoundError(f"{model_path} does not exist")
     else:
+        print(f"✅ Loading local model: {model_path}")
         model = YOLO(str(model_path))
 
     # Optimized hyperparameters for 4-class CCTV event detection (95%+ mAP target)
