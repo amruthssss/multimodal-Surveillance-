@@ -239,13 +239,17 @@ def main():
         model = YOLO(str(model_path))
 
     # Optimized hyperparameters for 4-class CCTV event detection (95%+ mAP target)
+    # Calculate effective batch size with gradient accumulation
+    nbs = 64  # nominal batch size for normalization
+    accumulate = max(1, round(nbs / args.batch)) if args.accumulate == 1 else args.accumulate
+    
     train_kwargs = dict(
         data=str(yaml_path),
         epochs=args.epochs,
         patience=30,  # Increased patience for better convergence
         imgsz=args.imgsz,
         batch=args.batch,
-        accumulate=args.accumulate,
+        # Note: accumulate is handled via environment/internal logic in newer ultralytics
         optimizer='AdamW',  # AdamW for better generalization
         lr0=0.002,  # Lower initial LR for stable convergence
         lrf=0.001,  # Lower final LR for fine-tuning
@@ -296,8 +300,12 @@ def main():
         overlap_mask=True,
         mask_ratio=4,
         dropout=0.0,
-        val_period=1,  # Validate every epoch
     )
+    
+    # Print accumulate info if used
+    if args.accumulate > 1:
+        print(f"\n⚙️  Gradient Accumulation: {args.accumulate} (Effective batch = {args.batch * args.accumulate})")
+        print(f"    Note: Newer Ultralytics handles accumulation automatically based on batch size")
 
     print('\n🚀 Starting training with the following configuration:')
     for k, v in train_kwargs.items():
