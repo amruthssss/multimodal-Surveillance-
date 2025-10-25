@@ -1,0 +1,6 @@
+{% extends 'base.html' %}
+{% block title %}Camera View{% endblock %}
+{% block content %}
+<h5>Camera {{ cam_id }}</h5>
+<img id="cam-stream" class="img-fluid border rounded" src="{{ url_for('video_feed', cam_id=cam_id) }}">
+{% endblock %}

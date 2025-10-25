@@ -1,0 +1,54 @@
+Flask==3.0.3
+Flask-SocketIO==5.3.6
+Flask-Login==0.6.3
+Flask-CORS==4.0.1
+eventlet==0.36.1
+python-dotenv==1.0.1
+Werkzeug==3.0.3
+Jinja2==3.1.4
+itsdangerous==2.2.0
+
+# Auth & security
+bcrypt==4.1.2
+passlib==1.7.4
+PyJWT==2.9.0
+
+# Database
+SQLAlchemy==2.0.32
+alembic==1.13.2
+
+# ML / CV
+opencv-python==4.10.0.84
+ultralytics==8.2.95
+torch==2.3.1+cpu
+torchvision==0.18.1+cpu
+torchaudio==2.3.1+cpu
+# If GPU needed, replace above with proper CUDA wheels from pytorch.org
+tensorflow==2.16.1
+numpy==1.26.4
+pandas==2.2.2
+scikit-learn==1.5.1
+protobuf==4.25.3
+
+# Audio
+librosa==0.10.2.post1
+soundfile==0.12.1
+
+# Utilities
+requests==2.32.3
+email-validator==2.2.0
+Pillow==10.4.0
+
+# Alerting (optional)
+twilio==9.2.3
+gTTS==2.5.3
+pydub==0.25.1
+playsound==1.3.0
+
+# Async tasks (optional)
+celery==5.4.0
+redis==5.0.8
+
+# Misc
+psutil==6.0.0
+pytest==8.3.2

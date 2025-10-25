@@ -1,0 +1,52 @@
+body { font-family: system-ui, Arial, sans-serif; }
+#camera-grid .cam-card { position: relative; }
+.alert-popup { min-width: 260px; }
+.badge-risk-high { background: #dc3545; }
+.badge-risk-medium { background: #ffc107; color:#222; }
+.badge-risk-low { background: #198754; }
+
+/* 🚀 Enhanced Detection Styles */
+.stat-box {
+  transition: all 0.3s ease;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+.stat-box:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+.stat-box h3 {
+  font-weight: bold;
+  font-size: 2rem;
+}
+
+#current-detection-card {
+  transition: all 0.3s ease;
+  animation: fadeIn 0.5s;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.alert-popup {
+  animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+#alert-popups .alert {
+  min-width: 300px;
+  animation: slideInRight 0.3s ease;
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(100px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+

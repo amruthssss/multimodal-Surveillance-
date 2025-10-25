@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% block title %}Alerts{% endblock %}
+{% block content %}
+<h4>Alert History</h4>
+<table class="table table-sm table-striped">
+  <thead>
+    <tr><th>Time</th><th>Label</th><th>Confidence</th><th>Media</th></tr>
+  </thead>
+  <tbody id="alert-history-body">
+  </tbody>
+</table>
+{% endblock %}

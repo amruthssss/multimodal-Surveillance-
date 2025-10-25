@@ -1,0 +1,13 @@
+Working Emotion Model - Created for Testing
+=============================================
+Purpose: Functional model for development/testing
+TensorFlow version: 2.19.0
+Architecture: Matches original training code
+Parameters: 4,743,431
+Input: 48x48 grayscale images (0-1 normalized)
+Output: 7 emotions (softmax probabilities)
+Labels: angry, disgust, fear, happy, neutral, sad, surprise
+
+NOTE: This is a working model with initialized weights
+For production, replace with your trained Kaggle model
+when the HDF5 compatibility issue is resolved.

@@ -1,0 +1,66 @@
+node_modules
+
+# Model files and weights (SENSITIVE - exclude from public repo)
+models/*.pkl
+models/*.pth
+models/*.pt
+models/*.h5
+models/*.keras
+models/*.json
+models/emotion_model_savedmodel/
+runs/
+yolov8n.pt
+
+# Video files (large, not for version control)
+*.mp4
+*.avi
+*.mov
+*.mkv
+
+# CSV logs (may contain sensitive detection data)
+*.csv
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+llm_learn/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Data directories
+data/logs/
+data/uploads/
+
+# Credentials and secrets
+*.env
+.env
+config/secrets.py
+auth_server.js
+
+# Deployment
+deployment/
+
+# Test files with personal paths
+test_dtest.py
+test_videoplayback.py
+working_camera_test.py
+
+# Frontend build
+frontend/node_modules/
+frontend/build/

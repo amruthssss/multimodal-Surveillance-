@@ -1,0 +1,90 @@
+{% extends 'base.html' %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<h4 class="mb-3">Camera Dashboard</h4>
+
+<!-- 🚀 Enhanced Detection Statistics -->
+<div class="row mb-4">
+  <div class="col-lg-12">
+    <div class="card">
+      <div class="card-body">
+        <h6 class="card-title mb-3">📊 Real-Time Detection Statistics</h6>
+        <div class="row text-center">
+          <div class="col-md-2">
+            <div class="stat-box bg-primary bg-opacity-10 p-3 rounded">
+              <h3 id="stat-total" class="mb-0">0</h3>
+              <small class="text-muted">Total Detections</small>
+            </div>
+          </div>
+          <div class="col-md-2">
+            <div class="stat-box bg-danger bg-opacity-10 p-3 rounded">
+              <h3 id="stat-accidents" class="mb-0">0</h3>
+              <small class="text-muted">🚗 Accidents</small>
+            </div>
+          </div>
+          <div class="col-md-2">
+            <div class="stat-box bg-warning bg-opacity-10 p-3 rounded">
+              <h3 id="stat-fires" class="mb-0">0</h3>
+              <small class="text-muted">🔥 Fires</small>
+            </div>
+          </div>
+          <div class="col-md-2">
+            <div class="stat-box bg-danger bg-opacity-10 p-3 rounded">
+              <h3 id="stat-explosions" class="mb-0">0</h3>
+              <small class="text-muted">💥 Explosions</small>
+            </div>
+          </div>
+          <div class="col-md-2">
+            <div class="stat-box bg-info bg-opacity-10 p-3 rounded">
+              <h3 id="stat-fighting" class="mb-0">0</h3>
+              <small class="text-muted">🥊 Fighting</small>
+            </div>
+          </div>
+          <div class="col-md-2">
+            <div class="stat-box bg-secondary bg-opacity-10 p-3 rounded">
+              <h3 id="stat-smoke" class="mb-0">0</h3>
+              <small class="text-muted">💨 Smoke</small>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Current Detection Status -->
+<div class="row mb-4">
+  <div class="col-lg-12">
+    <div class="card" id="current-detection-card" style="display: none;">
+      <div class="card-body">
+        <h6 class="card-title">🎯 Current Detection</h6>
+        <div id="current-detection-content"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row mb-4">
+  <div class="col-lg-3">
+    <div class="card h-100">
+      <div class="card-body">
+        <h6>Add Camera</h6>
+        <form method="post" action="{{ url_for('add_camera') }}">
+          <div class="mb-2">
+            <input class="form-control form-control-sm" name="rtsp_url" placeholder="rtsp://..." required>
+          </div>
+          <button class="btn btn-sm btn-primary w-100" type="submit">Add</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-9">
+    <div class="row" id="camera-grid">
+      <!-- dynamically injected -->
+    </div>
+  </div>
+</div>
+<hr>
+<h5 id="alerts">Live Alerts</h5>
+<div id="live-alerts" class="row g-2"></div>
+{% endblock %}

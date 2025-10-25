@@ -1,0 +1,21 @@
+# YOLO Dataset Configuration
+# This file maps class IDs to event names
+# Copy this if you don't have args.yaml from Kaggle
+
+path: yolo_dataset
+train: train/images
+val: val/images
+
+nc: 4  # Number of classes
+
+# Class names (based on your dataset)
+names:
+  0: explosion
+  1: fighting  
+  2: fire
+  3: vehicle_accident
+
+# Training configuration (optional reference)
+epochs: 100
+batch: 16
+imgsz: 640

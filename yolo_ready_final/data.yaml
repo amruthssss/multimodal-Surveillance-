@@ -1,0 +1,4 @@
+train: D:\muli_modal\yolo_ready_final\images\train
+val: D:\muli_modal\yolo_ready_final\images\val
+nc: 4
+names: ['fire', 'vehicle_accident', 'fighting', 'explosion']

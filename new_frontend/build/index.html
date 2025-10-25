@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Surveillance System - Real-Time Monitoring</title>
+    <link rel="stylesheet" href="/static/css/main.css">
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <h1><i class="fas fa-shield-alt"></i> AI Surveillance System</h1>
+            <span class="status-indicator online">● LIVE</span>
+        </div>
+        <div class="header-right">
+            <div class="system-info">
+                <span id="current-time"></span>
+            </div>
+            <div class="user-info">
+                <i class="fas fa-user-circle"></i>
+                <span>Admin</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="main-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-section">
+                <h3><i class="fas fa-chart-line"></i> Statistics</h3>
+                <div class="stats-grid">
+                    <div class="stat-card total">
+                        <div class="stat-icon"><i class="fas fa-bell"></i></div>
+                        <div class="stat-info">
+                            <div class="stat-value" id="stat-total">0</div>
+                            <div class="stat-label">Total Alerts</div>
+                        </div>
+                    </div>
+                    <div class="stat-card accident">
+                        <div class="stat-icon"><i class="fas fa-car-crash"></i></div>
+                        <div class="stat-info">
+                            <div class="stat-value" id="stat-accidents">0</div>
+                            <div class="stat-label">Accidents</div>
+                        </div>
+                    </div>
+                    <div class="stat-card fire">
+                        <div class="stat-icon"><i class="fas fa-fire"></i></div>
+                        <div class="stat-info">
+                            <div class="stat-value" id="stat-fires">0</div>
+                            <div class="stat-label">Fires</div>
+                        </div>
+                    </div>
+                    <div class="stat-card explosion">
+                        <div class="stat-icon"><i class="fas fa-burst"></i></div>
+                        <div class="stat-info">
+                            <div class="stat-value" id="stat-explosions">0</div>
+                            <div class="stat-label">Explosions</div>
+                        </div>
+                    </div>
+                    <div class="stat-card fighting">
+                        <div class="stat-icon"><i class="fas fa-hand-fist"></i></div>
+                        <div class="stat-info">
+                            <div class="stat-value" id="stat-fighting">0</div>
+                            <div class="stat-label">Fighting</div>
+                        </div>
+                    </div>
+                    <div class="stat-card smoke">
+                        <div class="stat-icon"><i class="fas fa-smog"></i></div>
+                        <div class="stat-info">
+                            <div class="stat-value" id="stat-smoke">0</div>
+                            <div class="stat-label">Smoke</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Current Detection -->
+            <div class="sidebar-section" id="current-detection-section" style="display: none;">
+                <h3><i class="fas fa-exclamation-triangle"></i> Active Alert</h3>
+                <div id="current-detection"></div>
+            </div>
+
+            <!-- Recent Alerts -->
+            <div class="sidebar-section">
+                <h3><i class="fas fa-history"></i> Recent Alerts</h3>
+                <div id="recent-alerts" class="recent-alerts-list"></div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="content">
+            <!-- Video Feed -->
+            <div class="video-section">
+                <div class="video-header">
+                    <h2><i class="fas fa-video"></i> Live Camera Feed</h2>
+                    <div class="video-controls">
+                        <button class="btn-control" id="btn-fullscreen">
+                            <i class="fas fa-expand"></i> Fullscreen
+                        </button>
+                        <button class="btn-control" id="btn-snapshot">
+                            <i class="fas fa-camera"></i> Snapshot
+                        </button>
+                    </div>
+                </div>
+                <div class="video-container" id="video-container">
+                    <img id="video-feed" src="/video_feed" alt="Live Feed">
+                    <div class="video-overlay">
+                        <div class="overlay-info">
+                            <span id="fps-counter">FPS: --</span>
+                            <span id="resolution">Resolution: --</span>
+                        </div>
+                    </div>
+                    <!-- Detection Overlay -->
+                    <div id="detection-overlay" class="detection-overlay"></div>
+                </div>
+            </div>
+
+            <!-- Alert Timeline -->
+            <div class="timeline-section">
+                <div class="timeline-header">
+                    <h3><i class="fas fa-timeline"></i> Event Timeline</h3>
+                    <button class="btn-clear" id="btn-clear-timeline">
+                        <i class="fas fa-trash"></i> Clear
+                    </button>
+                </div>
+                <div id="timeline" class="timeline"></div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Notification Container -->
+    <div id="notifications" class="notifications-container"></div>
+
+    <!-- Modal for Fullscreen -->
+    <div id="fullscreen-modal" class="modal">
+        <div class="modal-content">
+            <button class="modal-close" id="modal-close">
+                <i class="fas fa-times"></i>
+            </button>
+            <img id="modal-video" src="/video_feed" alt="Live Feed">
+        </div>
+    </div>
+
+    <script src="/static/js/main.js"></script>
+</body>
+</html>
