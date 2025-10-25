@@ -1,6 +1,8 @@
-# Multi-Modal Surveillance System 🚨
+# Multi-Modal Surveillance Detection System 🚨
 
-AI-powered real-time surveillance system that detects accidents, explosions, fire, smoke, and fighting using hybrid detection (YOLO + AI Agent with 221,000+ learned patterns).
+AI-powered real-time surveillance system that detects accidents, explosions, fire, smoke, and fighting using hybrid detection (YOLOv11 + AI Agent).
+
+> **Note**: This is the public version. Pre-trained models and pattern files are not included due to size constraints. See training instructions below.
 
 ## 🎯 Features
 
