@@ -1,249 +1,215 @@
-# Multi-Modal Surveillance Detection System 🚨
+# Multimodal Surveillance System for Intelligent Security Monitoring
 
-AI-powered real-time surveillance system that detects accidents, explosions, fire, smoke, and fighting using hybrid detection (YOLOv11 + AI Agent).
+A real-time multimodal AI system that detects **fire, smoke, explosions, accidents, intrusion and fighting** from live camera feeds and video files. It combines object detection, action recognition and emotion recognition through an **Adaptive Fusion Engine**, validates detections over time to reduce false alarms, and raises alerts through audio alarms, SMS and email. Events are logged to MongoDB and shown on a live web dashboard.
 
-> **Note**: This is the public version. Pre-trained models and pattern files are not included due to size constraints. See training instructions below.
+> **Note:** This is the public version of the project. Trained model weights and learned pattern files are not included because of their size. See [Models](#models) for how to train or add your own.
 
-## 🎯 Features
+---
 
-- **🚗 Vehicle Accident Detection**: Detects collisions with motion spike analysis (200-450 range)
-- **💥 Explosion Detection**: Identifies sudden bursts with radial motion and bright flashes
-- **🔥 Fire Detection**: Recognizes flames with color analysis and flickering patterns
-- **💨 Smoke Detection**: Detects gray/black plumes with slow drift patterns
-- **👊 Fighting Detection**: Identifies physical altercations with irregular human motion
+## Features
 
-## 🧠 Technology Stack
+- **Real-time detection** on live feeds and recorded video
+- **Multimodal fusion:** YOLOv11 object detection, 3D-CNN + LSTM action recognition and CNN emotion recognition, combined by an Adaptive Fusion Engine
+- **Temporal validation:** an alert fires only when confidence stays at or above **65% across 5 consecutive frames**, which suppresses single-frame false positives
+- **Multi-channel alerting:** audio alarm, Twilio SMS and email notifications
+- **Event logging:** every event is stored in MongoDB
+- **Live dashboard:** Flask backend with a React frontend
 
-- **YOLOv11m**: Custom trained model (75.5% mAP@50, 4 classes)
-- **AI Agent**: Pattern-based detection with 221,660+ learned patterns
-- **Hybrid Fusion**: 80% AI Agent + 20% YOLO weighted detection
-- **Optical Flow**: Farneback method for motion analysis
-- **Morphological Filtering**: HSV-based color segmentation
-- **Temporal Validation**: Streak requirement to prevent false positives
+### Detected events
 
-## 📋 Requirements
+| Event | Main cues |
+|---|---|
+| Fire | Flame colour analysis, flickering, sustained duration |
+| Smoke | Gray coverage, slow drift, gradual increase |
+| Explosion | Sudden bright flash, radial burst, short duration |
+| Accident | Motion spike with vehicles detected, linear collision pattern |
+| Intrusion | Person detection and action recognition |
+| Fighting | Multiple people, irregular motion, sustained activity |
 
-```txt
-opencv-python>=4.8.0
-numpy>=1.24.0
-torch>=2.0.0
-ultralytics>=8.0.0
-Pillow>=10.0.0
-scikit-learn>=1.3.0
-requests>=2.31.0
-beautifulsoup4>=4.12.0
+---
+
+## System architecture
+
+```mermaid
+flowchart LR
+    A[Live feed / video] --> B[Frame sampling]
+    B --> C[YOLOv11 object detection]
+    B --> D[3D-CNN + LSTM action recognition]
+    B --> E[CNN emotion recognition]
+    C --> F[Adaptive Fusion Engine]
+    D --> F
+    E --> F
+    F --> G[Temporal validation<br/>65% confidence x 5 frames]
+    G --> H[Audio alarm]
+    G --> I[Twilio SMS / Email]
+    G --> J[(MongoDB event log)]
+    J --> K[Flask API]
+    K --> L[React dashboard]
 ```
 
-## 🚀 Quick Start
+---
 
-### 1. Installation
+## Tech stack
+
+| Area | Tools |
+|---|---|
+| Language | Python |
+| Deep learning | PyTorch, YOLOv11 (Ultralytics), 3D-CNN, LSTM, CNN |
+| Computer vision | OpenCV (optical flow, HSV colour segmentation) |
+| Backend | Flask |
+| Frontend | React |
+| Database | MongoDB |
+| Alerts | Twilio (SMS), email, audio alarm |
+
+---
+
+## Project structure
+
+```
+.
+├── main.py                        # Command-line detection entry point
+├── app.py                         # Flask application
+├── enhanced_final_ultra_system.py # Core detection and fusion logic
+├── smart_event_differentiator.py  # Separates similar events (e.g. accident vs explosion)
+├── intelligent_event_logic.py     # Event rules and thresholds
+├── train_yolov11.py               # YOLOv11 training script
+├── test_trained_model.py          # Model testing
+├── config/                        # Configuration
+├── models/                        # Trained models (not included in public version)
+├── services/  workers/  utils/    # Alerting, background workers, helpers
+├── surveillance-backend/          # Backend service
+├── surveillance-frontend/         # React dashboard source
+├── requirements.txt
+├── environment.yml
+└── .env.example                   # Environment variable template
+```
+
+---
+
+## Getting started
+
+### Prerequisites
+
+- Python 3.10+
+- Node.js and npm (for the dashboard)
+- MongoDB (local or Atlas)
+- Twilio account (optional, for SMS alerts)
+
+### 1. Clone and install
 
 ```bash
-# Clone repository
-git clone https://github.com/amruthssss/ss.git
-cd ss
+git clone https://github.com/amruthssss/multimodal-Surveillance-.git
+cd multimodal-Surveillance-
 
-# Install dependencies
+python -m venv venv
+# Windows: venv\Scripts\activate    |  macOS/Linux: source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Download Model
+Or with conda:
 
-Place your trained YOLOv11 model in:
+```bash
+conda env create -f environment.yml
+```
+
+### 2. Configure environment
+
+```bash
+cp .env.example .env
+```
+
+Open `.env` and fill in your MongoDB connection string, Twilio credentials and email settings. Never commit this file.
+
+### 3. Add a model
+
+Place your trained YOLOv11 weights at:
+
 ```
 runs/detect/train/weights/best.pt
 ```
 
-Or train your own model with the provided dataset structure.
+or train your own (see [Models](#models)).
 
-### 3. Run Detection
+### 4. Run
+
+**Command-line detection on a video:**
 
 ```bash
-# Interactive mode
-python main.py
-
-# Or specify video directly
 python main.py --video path/to/video.mp4
 ```
 
-## 📊 Model Performance
-
-| Metric | Value |
-|--------|-------|
-| mAP@50 | 75.5% |
-| Precision | 75.6% |
-| Recall | 72.8% |
-| Classes | 4 (fire, accident, fighting, explosion) |
-| Epochs | 130 |
-
-## 🎨 Detection Output
-
-The system displays:
-- **White text alerts**: "ALERT: [EVENT]!"
-- **Confidence score**: "Confidence: XX.X%"
-- **Frame number**: "Frame: X/Y"
-- **Clean video**: No colored overlays, just text
-
-## 🔧 Configuration
-
-### Detection Thresholds
-
-Edit `enhanced_final_ultra_system.py`:
-
-```python
-self.thresholds = {
-    'accident': {
-        'motion_spike': 200,        # Motion spike range: 200-450
-        'confidence': 65.0          # Detection confidence
-    },
-    'explosion': {
-        'brightness_spike': 180,
-        'confidence': 70.0
-    },
-    # ... other events
-}
-```
-
-### Streak Validation
-
-```python
-self.streak_requirement = 5  # Frames needed to confirm alert
-```
-
-## 📂 Project Structure
-
-```
-├── main.py                          # Main entry point
-├── enhanced_final_ultra_system.py   # Core detection system
-├── smart_event_differentiator.py    # Event differentiation logic
-├── web_pattern_learner.py          # Pattern learning from web
-├── learn_from_patterns.py          # Threshold optimization
-├── models/                          # Trained models & patterns
-│   ├── best.pt                     # YOLOv11 weights
-│   └── *.pkl                       # Learned patterns (221K+)
-├── test_*.py                        # Test scripts
-└── requirements.txt                 # Dependencies
-```
-
-## 🧪 Testing
+**Web dashboard:**
 
 ```bash
-# Test on sample video
-python test_dtest.py
+# Backend
+python app.py
 
-# Test accident detection
-python test_road_accident.py
-
-# Learn from collected patterns
-python learn_from_patterns.py
+# Frontend (in a second terminal)
+cd surveillance-frontend
+npm install
+npm start
 ```
 
-## 🎓 How It Works
-
-### 1. Hybrid Detection
-- **YOLO**: Fast object detection for vehicles, fire, smoke
-- **AI Agent**: Pattern-based analysis with learned characteristics
-- **Fusion**: Weighted combination (80% Agent + 20% YOLO)
-
-### 2. Event Differentiation
-
-```python
-# Accident vs Explosion
-if motion_spike > 450: → Explosion
-elif 200 < motion_spike < 450: → Accident
-else: → Normal traffic
-
-# Fire vs Explosion
-if duration < 1s + bright flash: → Explosion
-elif duration > 3s + flickering: → Fire
-```
-
-### 3. Temporal Validation
-- Requires 5 consecutive frames above threshold
-- Prevents single-frame false positives
-- Validates event duration patterns
-
-## 📈 Performance
-
-- **Processing Speed**: ~2-3 FPS (with frame skipping)
-- **Frame Skip**: Every 2nd frame processed
-- **Accuracy**: 221,660+ learned patterns from web sources
-- **False Positives**: Minimized with strict thresholds
-
-## 🔍 Event Detection Criteria
-
-### Accident 🚗
-- Motion spike: 200-450
-- Vehicles detected (YOLO confidence > 20%)
-- NO explosion colors (orange/yellow)
-- Linear collision pattern
-
-### Explosion 💥
-- Motion spike: 450+
-- Bright flash (brightness > 180)
-- Orange/yellow colors (> 5%)
-- Radial burst pattern
-
-### Fire 🔥
-- Orange flames (> 12%)
-- Sustained flickering (> 3s)
-- Upward motion
-- High brightness
-
-### Smoke 💨
-- Gray coverage (> 28%)
-- Slow drift pattern
-- Low brightness
-- Gradual increase
-
-### Fighting 👊
-- Multiple humans detected
-- Irregular motion (60-200)
-- Sustained activity (> 18 frames)
-- No vehicles dominant
-
-## 🛠️ Training Custom Model
-
-```bash
-# Prepare dataset in YOLO format
-# Train YOLOv11
-yolo train model=yolov11m.pt data=data.yaml epochs=130 imgsz=640
-```
-
-## 📝 Output Files
-
-- **Video**: `[filename]_detected.mp4`
-- **Feature Log**: `enhanced_features_log.csv`
-- **Learned Thresholds**: `models/learned_optimal_thresholds.json`
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit changes (`git commit -m 'Add AmazingFeature'`)
-4. Push to branch (`git push origin feature/AmazingFeature`)
-5. Open Pull Request
-
-## 📄 License
-
-This project is for educational and research purposes.
-
-## 👤 Author
-
-**Amruth**
-- GitHub: [@amruthssss](https://github.com/amruthssss)
-
-## 🙏 Acknowledgments
-
-- YOLOv11 by Ultralytics
-- Pattern learning from Google Images, Bing, Yahoo
-- OpenCV for computer vision
-- PyTorch for deep learning
-
-## 📞 Support
-
-For issues or questions, please open an issue on GitHub.
+On Windows you can also use the helper scripts: `EASY_SETUP.bat`, `START.bat` or `START_SERVERS.bat`.
 
 ---
 
-**⚠️ Note**: This system is designed for surveillance and safety monitoring. Ensure compliance with local privacy laws and regulations when deploying.
+## Models
+
+### YOLOv11 detector
+
+Trained on a custom 4-class dataset (fire, accident, fighting, explosion):
+
+| Metric | Value |
+|---|---|
+| mAP@50 | 75.5% |
+| Precision | 75.6% |
+| Recall | 72.8% |
+| Epochs | 130 |
+
+To train your own model, prepare a dataset in YOLO format and run:
+
+```bash
+yolo train model=yolov11m.pt data=data.yaml epochs=130 imgsz=640
+```
+
+### Action and emotion recognition
+
+The 3D-CNN + LSTM action recognizer and the CNN emotion recognizer feed their outputs into the Adaptive Fusion Engine alongside the YOLO detections.
+
+---
+
+## How it works
+
+1. **Capture:** frames are read from a live feed or video file, with frame skipping to keep latency low.
+2. **Detect:** YOLOv11 finds objects, the 3D-CNN + LSTM classifies actions across frame sequences, and the CNN classifies emotion.
+3. **Fuse:** the Adaptive Fusion Engine merges the three signals into a single confidence score per event type.
+4. **Validate:** an event is confirmed only after **5 consecutive frames at 65% confidence or higher**.
+5. **Alert and log:** a confirmed event triggers the audio alarm, Twilio SMS and email, and is saved to MongoDB.
+6. **Display:** the Flask API serves events to the React dashboard in real time.
+
+### Tuning thresholds
+
+Detection thresholds and the streak requirement live in `enhanced_final_ultra_system.py`:
+
+```python
+self.streak_requirement = 5   # consecutive frames needed to confirm an alert
+```
+
+---
+
+## Responsible use
+
+This system is intended for safety and security monitoring. Make sure your deployment complies with local privacy and surveillance laws and with the consent requirements that apply to the areas being monitored.
+
+## License
+
+This project is for educational and research purposes.
+
+## Author
+
+**Amruth S Sharma**
+
+- GitHub: [@amruthssss](https://github.com/amruthssss)
+- LinkedIn: [amruths604](https://linkedin.com/in/amruths604)
+- Portfolio: [amruthssharmaportfolio.netlify.app](https://amruthssharmaportfolio.netlify.app/)
