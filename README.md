@@ -1,242 +1,146 @@
 <p align="center">
-  <img src="docs/assets/sentinel-vision-hero.svg" alt="Animated Sentinel Vision operations display" width="100%" />
+  <img src="docs/assets/banner.svg" alt="Sentinel Vision" width="100%" />
 </p>
 
 <p align="center">
-  <a href="https://github.com/amruthssss/multimodal-Surveillance-"><img alt="Project" src="https://img.shields.io/badge/Sentinel-Vision-ff3b35?style=for-the-badge&logo=proton&logoColor=white"></a>
-  <img alt="Python" src="https://img.shields.io/badge/Python-3.12%2B-3776AB?style=for-the-badge&logo=python&logoColor=white">
-  <img alt="React" src="https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=101010">
-  <img alt="Local AI" src="https://img.shields.io/badge/Inference-Local-222?style=for-the-badge&logo=ollama&logoColor=white">
+  <img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12%2B-3776AB?style=for-the-badge&logo=python&logoColor=white">
+  <img alt="React 19" src="https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=101010">
+  <img alt="Node 24+" src="https://img.shields.io/badge/Node-24%2B-5FA04E?style=for-the-badge&logo=nodedotjs&logoColor=white">
+  <img alt="Accuracy-gated notifications" src="https://img.shields.io/badge/Notifications-Accuracy--gated-ff3b35?style=for-the-badge">
 </p>
 
 <p align="center"><b>Local-first video and audio event monitoring with operator-reviewed alerts.</b></p>
 
 ---
 
-## ◉ Mission
+## Overview
 
-Sentinel Vision combines a React operations dashboard, a Node.js account/configuration API, and a Python computer-vision service. It accepts camera streams and recordings, analyzes visual and audio signals locally, and gives operators evidence to review before acting.
+Sentinel Vision combines a React dashboard, a Node.js account/configuration API, and a Python computer-vision service. Connect camera streams or recordings, review detections, and inspect incident evidence before acting. This is a prototype; validate it with representative footage and keep a human in the loop.
 
-The project is a prototype. Its detections are advisory and need evaluation on representative clips before operational use.
+<p align="center"><img src="docs/assets/pipeline.svg" alt="Sentinel Vision processing pipeline" width="100%"></p>
 
-## ✦ What it does
+## Detection capabilities
 
-- **Connects video sources:** built-in camera, RTSP, IP camera, public YouTube stream, or local video file.
-- **Analyzes visual events:** fire, smoke, traffic accidents, and explosion-like visual cues.
-- **Analyzes audio events:** YAMNet classifies gunshot and explosion sounds when the operator enables microphone monitoring.
-- **Displays an alert queue:** confirmed incidents include camera/source, event, severity, confidence, repeat count, and a locally saved image or audio sample.
-- **Deduplicates and acknowledges incidents:** repeated detections update one incident for up to two minutes; higher severity escalates it. Operators can acknowledge alerts in the dashboard.
-- **Learns from explicit review:** correct, false-alarm, and missed-event labels are saved and adjust per-event thresholds. This changes decision thresholds; it does not retrain neural-network weights.
-- **Measures performance:** the Event Intelligence view reports reviewed-example precision/recall. An offline evaluator measures labeled video and audio clips.
+<p align="center"><img src="docs/assets/capabilities.svg" alt="Fire, smoke, accident, explosion and gunshot detection" width="100%"></p>
 
-## ⌁ Alerting and delivery
+- **Video:** fire, smoke, traffic accident, and explosion-like visual cues.
+- **Audio:** gunshot and explosion sounds with opt-in microphone monitoring.
+- **Sources:** webcam, RTSP/IP camera, YouTube stream, or local media file.
+- **Review:** confirm or reject detections; feedback adjusts event thresholds, not neural-network weights.
 
-### Confirmation and incident handling
+## Alerts
 
-| Signal | Confirmation | Escalation |
+| Event | Confirmation | Critical escalation |
 | --- | --- | --- |
-| Fire, smoke, accident | Event-specific confidence threshold and 2 matching results in the last 3 inference samples | Critical requires 3 matching samples and at least 85% confidence |
-| Explosion in video | Same 2-of-3 confirmation; visual evidence is checked for the event | A strong fast path can mark critical at 95% only when at least 3 explosion cues agree; otherwise critical requires 3 samples |
-| Gunshot/explosion audio | YAMNet event score ≥0.65 in one window, or ≥0.30 in two consecutive windows | Strong matches respond in one ~1-second analysis window; lower scores need temporal confirmation. Score ≥0.75 is critical; lower confirmed scores are high. |
-| Repeated same event | Same camera and event are grouped for 120 seconds | One incident’s occurrence count and last-seen time are updated; higher severity replaces its risk and refreshes its evidence |
+| Fire, smoke, accident | Event threshold in 2 of 3 inference samples | 3 matching samples at ≥85% confidence |
+| Video explosion | 2 of 3 samples with visual cues | 3 samples, or ≥95% with 3+ agreeing cues |
+| Audio gunshot/explosion | YAMNet score ≥0.65 once or ≥0.30 twice consecutively | Score ≥0.75 |
+| Repeated event | Grouped by camera and event for 120 seconds | Severity increase updates the existing incident |
 
-### Dashboard and external delivery
+Confirmed incidents appear in the dashboard with source, time, confidence, severity, repeat count, and evidence. Video evidence is a JPEG snapshot; audio evidence is a WAV clip. Evidence is stored locally in ignored `data/alerts/`.
 
-Confirmed incidents appear in the dashboard with event, severity, source, camera, time, confidence, repeat count, evidence, and acknowledgement. Video saves a JPEG snapshot; audio saves a WAV clip. Evidence is local under `data/alerts/` and ignored by Git.
+Email is optional for HIGH/CRITICAL alerts. SMS is optional and critical-only. Both require at least **20 reviewed examples per event class** and **90% measured precision** for that class. These are delivery gates, not a claim that the project has achieved those results. Provider credentials must be configured before messages can be sent.
 
-Email and optional SMS use a private Flask-to-Node relay. External delivery requires at least 20 human-reviewed samples and 90% precision for that event class. Qualified HIGH/CRITICAL incidents email the account address with a JPEG attached. SMS is opt-in and critical-only. Settings shows provider status and recent send results; setup is below.
+<details>
+<summary><b>Example notification format</b></summary>
 
-## ◉ Product snapshots
-
-The project banner above is animated. The screenshot below shows the camera monitoring view while a source is connecting; confirmed alerts display the saved snapshot or audio evidence in the dashboard.
-
-![Sentinel Vision camera monitoring screen](docs/screenshots/camera-preview.png)
-
-## ▧ Architecture
-
-```mermaid
-flowchart LR
-  CAM[Camera / YouTube / video] --> CAP[Python capture worker]
-  CAP --> MJPEG[Latest-frame MJPEG feed]
-  CAP --> INF[Python inference worker]
-  INF --> VISION[YOLO + visual event heuristics]
-  MIC[Operator microphone] --> AUDIO[YAMNet audio classifier]
-  VISION --> POLICY[Temporal confirmation + thresholds]
-  AUDIO --> POLICY
-  POLICY --> ALERT[Deduplicated alert + local evidence]
-  ALERT --> SQLITE[(SQLite incident and review records)]
-  DASH[React dashboard] <--> API[Flask AI API]
-  API <--> NODE[Node / Express / MongoDB]
-  INF --> API
-  ALERT --> DASH
+```text
+[HIGH] fire · camera_0
+Time: {event_time} · Confidence: {confidence}
+Reviewed examples: {count} · Measured precision: {precision}
+JPEG evidence attached
 ```
 
-## ◈ Models
+```text
+CRITICAL GUNSHOT · microphone · {confidence} · {event_time}
+Review: {dashboard_url}
+```
 
-| Capability | Current implementation | Notes |
-| --- | --- | --- |
-| General object context | YOLO26 Nano COCO checkpoint (`yolo26n.pt`) | Objects provide context; the COCO model is not an explosion classifier. |
-| Fire/smoke | Optional YOLO event checkpoint plus visual heuristics | Configured through `FIRE_SMOKE_MODEL_REPO` / `FIRE_SMOKE_MODEL_FILE`; availability depends on model download or local weights. |
-| Traffic accident | Optional YOLO accident checkpoint plus motion/vehicle context | Runs periodically to reduce inference load. |
-| Video explosion | Temporal visual heuristics | No verified dedicated lightweight explosion checkpoint is bundled. |
-| Gunshot/explosion audio | YAMNet ONNX and AudioSet class map | Microphone capture is opt-in. |
+</details>
 
-The model cards describe their authors’ datasets and results; those are not performance measurements for this app. No labeled evaluation set is bundled by default.
+## Models
 
-## ⌘ Run locally
+| Capability | Implementation |
+| --- | --- |
+| General object context | YOLO26 Nano (`yolo26n.pt`) |
+| Fire/smoke | Optional YOLO checkpoint plus visual heuristics |
+| Traffic accident | Optional YOLO checkpoint plus motion/vehicle context |
+| Video explosion | Temporal visual cues; no dedicated checkpoint bundled |
+| Audio | YAMNet ONNX with AudioSet classes |
 
-### Requirements
+Optional weights may download on first use; model scores are not app accuracy measurements. No labeled evaluation set is included by default.
 
-- Windows 10/11 or a compatible desktop OS
-- Python 3.12+
-- Node.js 24+ and npm
-- MongoDB for account/configuration services
-- A webcam, supported network camera, or video/audio clips
+## Screenshots
 
-### Configure
+![Sentinel Vision command center](docs/screenshots/command-center.png)
+
+The supplied landing and account screenshots use **Aegis Vision** branding and are included as visual references, not captures of the current Sentinel Vision pages.
+
+<details>
+<summary><b>Supplied visual references</b></summary>
+
+![Supplied landing-page reference](docs/screenshots/landing.png)
+![Supplied account-page reference](docs/screenshots/account.png)
+
+</details>
+
+## Run locally
+
+**Requirements:** Windows 10/11, Python 3.12+, Node.js 24+, MongoDB, and a camera or media clips.
 
 ```powershell
 git clone https://github.com/amruthssss/multimodal-Surveillance-.git
 cd multimodal-Surveillance-
-Copy-Item .env.example .env
-```
+Copy-Item .env.example .env  # set JWT_SECRET and MONGODB_URI
 
-Edit `.env`: set a unique `JWT_SECRET`, a `MONGODB_URI`, and any local model/source settings. URL-encode special characters in MongoDB passwords. Never commit `.env`, model weights, video, or alert evidence.
-
-### Install
-
-```powershell
 python -m venv venv
 .\venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 
-Push-Location surveillance-backend
-npm install
-Pop-Location
-Push-Location surveillance-frontend
-npm install
-Pop-Location
-```
+Push-Location surveillance-backend; npm install; Pop-Location
+Push-Location surveillance-frontend; npm install; Pop-Location
 
-For NVIDIA GPU inference, install the PyTorch/CUDA wheel matching the machine from the [official PyTorch selector](https://pytorch.org/get-started/locally/) before installing the remaining Python requirements.
-
-### Start
-
-Run all services from the repository root:
-
-```powershell
 .\START.bat
 ```
 
-Or start each in its own terminal:
+Open **http://127.0.0.1:4300** and connect a source. Services can also be started separately: `python app.py` (AI API, port 5000), `npm start` in `surveillance-backend` (port 5001), and `npm run dev` in `surveillance-frontend` (port 4300).
 
-```powershell
-# Python camera and AI API
-.\venv\Scripts\Activate.ps1
-python app.py
+## Review and evaluate
 
-# Node account/configuration API
-Push-Location surveillance-backend
-npm start
-
-# React dashboard
-Push-Location surveillance-frontend
-npm run dev
-```
-
-Open **http://127.0.0.1:4300**. The Python API uses port **5000**; the Node API uses **5001**. Configure a source in the dashboard to start video inference. Microphone monitoring is separately opt-in.
-
-## ◎ Review detections and measure accuracy
-
-The dashboard’s Event Intelligence page lets an operator label a detected event as correct or a false alarm, or label a normal sample as a missed event. Reviewed labels are stored in SQLite and appear in the evaluation cards. Threshold updates are stored in the ignored local file `data/detection_feedback.json`.
-
-For a separate clip-level evaluation set, copy `evaluation/manifest.example.csv` to `evaluation/manifest.csv`, add labeled local media paths, then run:
+Use **Event Intelligence** to label correct detections, false alarms, and missed events. To evaluate labeled clips, copy `evaluation/manifest.example.csv` to `evaluation/manifest.csv`, add local paths, then run:
 
 ```powershell
 python scripts/evaluate_labeled_videos.py --manifest evaluation/manifest.csv --output evaluation/report.json
 ```
 
-The manifest supports `normal`, `explosion`, `fire`, `smoke`, `accident`, and `gunshot`. Use `media_type=video` for visual events and `media_type=audio` for gunshot/audio-explosion clips. Include normal clips and keep a final evaluation set separate from clips used to tune thresholds. See [evaluation/README.md](evaluation/README.md).
+Labels: `normal`, `explosion`, `fire`, `smoke`, `accident`, `gunshot`. See [evaluation/README.md](evaluation/README.md).
 
-## ⇄ API reference
+## Configure external delivery
+
+Set `ALERT_DISPATCH_SECRET` in the ignored root `.env` and configure SMTP values (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`). For SMS, add `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_FROM`. Restart Flask and Node, then enable email or **Critical SMS only** under **Settings**. Check **Recent sends** for delivery results. Missing credentials, an unmet accuracy gate, or provider errors leave the alert in the dashboard.
+
+Email uses [Nodemailer SMTP](https://nodemailer.com/smtp/); SMS uses [Twilio Messages](https://www.twilio.com/docs/messaging/api/message-resource). Provider charges may apply. Never commit `.env` or provider credentials.
+
+<details>
+<summary><b>API and configuration</b></summary>
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /health` | Python service health |
-| `GET /api/status` | Camera and model state |
-| `GET /api/detections/recent` | Latest per-camera detections |
-| `GET /api/alerts` | Recent persisted incidents |
-| `POST /api/alerts/{id}/acknowledge` | Acknowledge an incident |
-| `GET /api/alerts/{id}/evidence` | View its local JPEG/WAV evidence |
-| `POST /api/detections/feedback` | Persist an operator ground-truth label |
-| `GET /api/detections/reviews` | Retrieve reviewed examples |
-| `GET /api/detections/evaluation` | Calculate per-event precision, recall, and F1 |
-| `POST /api/camera/configure` | Configure a video source |
-| `POST /api/audio-analysis` | Analyze an opt-in microphone window |
-| `GET /api/alerts/status` | Check SMTP/Twilio configuration for the signed-in account |
-| `GET /api/alerts/deliveries` | Review recent outbound send results |
+| `GET /health`, `GET /api/status` | Service health and camera/model state |
+| `GET /api/alerts` | Incident list |
+| `POST /api/alerts/{id}/acknowledge` | Acknowledge incident |
+| `GET /api/alerts/{id}/evidence` | JPEG/WAV evidence |
+| `POST /api/detections/feedback` | Save operator label |
+| `GET /api/detections/evaluation` | Per-event precision, recall, F1 |
+| `GET /api/alerts/status`, `/api/alerts/deliveries` | Delivery configuration and recent sends |
 
-## ⚙ Configuration
+See [.env.example](.env.example) for configuration variables.
 
-| Variable | Purpose |
-| --- | --- |
-| `MONGODB_URI`, `JWT_SECRET` | Node API database and authentication |
-| `FLASK_PORT`, `PORT` | Python and Node service ports |
-| `VITE_API_URL`, `VITE_AI_URL` | Frontend API addresses |
-| `VIDEO_SOURCE`, `FRAME_INTERVAL` | Camera device and inference sampling |
-| `VIDEO_MAX_WIDTH`, `VIDEO_JPEG_QUALITY` | Stream bandwidth/quality balance |
-| `EVENT_MODEL_INTERVAL` | Specialized visual model sampling interval |
-| `FIRE_SMOKE_MODEL_REPO`, `TRAFFIC_ACCIDENT_MODEL_REPO`, `YAMNET_MODEL_REPO` | Optional Hugging Face model sources |
-| `FIRE_SMOKE_CONFIDENCE`, `ACCIDENT_CONFIDENCE` | Event-model confidence cutoffs |
-| `AUDIO_GUNSHOT_THRESHOLD`, `AUDIO_EXPLOSION_THRESHOLD` | Moderate audio scores requiring two consecutive windows |
-| `AUDIO_GUNSHOT_STRONG_THRESHOLD`, `AUDIO_EXPLOSION_STRONG_THRESHOLD` | Strong one-window audio confirmation cutoff |
-| `ALERT_DISPATCH_SECRET`, `ALERT_DISPATCH_URL` | Private Python-to-Node alert relay; keep the shared secret only in the ignored root `.env` |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | SMTP provider for account email alerts with a JPEG snapshot attachment |
-| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM` | Optional provider configuration for critical-only SMS |
-| `DATABASE_URL` | SQLite event/review database or compatible SQLAlchemy URL |
+</details>
 
-See [.env.example](.env.example) for the complete local configuration template.
+## Privacy and limitations
 
-### Configure outbound delivery
-
-1. Set a long random `ALERT_DISPATCH_SECRET` in the ignored root `.env` (for example, generate one with `python -c "import secrets; print(secrets.token_urlsafe(48))"`). Both services load this same file. The account API listens on localhost; the shared secret protects its internal dispatch endpoint.
-2. For email, set `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, and `SMTP_FROM`. For Gmail, use an app password with two-step verification enabled; never use or commit your normal account password.
-3. Restart Flask and the Node account API. Sign in, open **Settings**, enable email, and save. Email goes to the account email on file once that event class clears the review gate.
-4. For optional SMS, configure Twilio's account SID, auth token, and sender number. Enable **Critical SMS only** in Settings. The server rejects SMS for every non-critical event.
-5. Review **Recent sends** in Settings to see sent/failed status. Missing credentials, an unmet accuracy gate, or a provider error leaves the incident in the dashboard and does not report a successful external send.
-
-Email uses Nodemailer's SMTP transport ([provider setup reference](https://nodemailer.com/smtp/)); optional SMS uses Twilio's [Messages REST resource](https://www.twilio.com/docs/messaging/api/message-resource). Provider account charges and recipient policies apply.
-
-Example email subject and body:
-
-```text
-[HIGH] fire · camera_0
-
-Confirmed fire alert
-Severity: HIGH
-Camera: camera_0
-Time: 10/27/2026, 14:32:08
-Confidence: 91.0%
-Repeated detections: 4
-Accuracy gate: 24 reviewed samples, 91.7% precision
-A JPEG evidence snapshot is attached.
-```
-
-Example SMS (critical incidents only):
-
-```text
-CRITICAL GUNSHOT · microphone · 96% · 10/27/2026, 14:32. Review: http://localhost:4300/dashboard
-```
-
-## ⛨ Privacy and limitations
-
-- Services bind to localhost by default. Do not expose them to the public internet without authentication, access controls, and a reviewed deployment design.
-- Video and audio evidence remain on the machine running the Python service unless an accuracy-qualified email alert is sent; that email includes the JPEG snapshot by design. External messages contain event metadata, and SMS contains no image attachment.
-- Account tokens are stored by the browser application. Review the authentication and deployment model before using real accounts.
-- A few reviewed events are not enough to establish accuracy. Track false positives and misses per event on representative day/night, indoor/outdoor, and camera conditions.
-- This prototype is not a substitute for human judgment or certified life-safety systems. Do not rely on it as the only means of detecting emergencies.
-
-## License
-
-Check the licenses of the project and each downloaded model before redistribution or commercial use. Model weights are not included in this repository.
+- Services bind to localhost by default; review authentication and access controls before remote exposure.
+- Evidence stays on the Python service except JPEGs attached to qualified email alerts; SMS contains metadata only.
+- Detections are advisory and are not a substitute for human judgment or certified life-safety systems.
+- Check this project and model licenses before redistribution or commercial use. Model weights are not included.
