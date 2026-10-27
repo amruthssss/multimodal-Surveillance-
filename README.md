@@ -40,25 +40,11 @@ The project is a prototype. Its detections are advisory and need evaluation on r
 | Gunshot/explosion audio | YAMNet event score ≥0.65 in one window, or ≥0.30 in two consecutive windows | Strong matches respond in one ~1-second analysis window; lower scores need temporal confirmation. Score ≥0.75 is critical; lower confirmed scores are high. |
 | Repeated same event | Same camera and event are grouped for 120 seconds | One incident’s occurrence count and last-seen time are updated; higher severity replaces its risk and refreshes its evidence |
 
-### Dashboard-first operator review
+### Dashboard and external delivery
 
-Every confirmed event is persisted and appears in the dashboard alert queue first. Each incident includes the event label, severity, camera or microphone source, first/last seen time, confidence, repeat count, and evidence. Video evidence is saved as a JPEG snapshot; audio evidence is saved as a WAV clip. Operators can preview/play the evidence and acknowledge the incident. Repeated detections for the same camera and event update that incident for 120 seconds; a severity increase escalates the existing incident and refreshes its evidence.
+Confirmed incidents appear in the dashboard with event, severity, source, camera, time, confidence, repeat count, evidence, and acknowledgement. Video saves a JPEG snapshot; audio saves a WAV clip. Evidence is local under `data/alerts/` and ignored by Git.
 
-Example dashboard alert:
-
-```text
-FIRE · HIGH
-Camera: camera_0 · Source: video
-Time: 10/27/2026, 14:32:08 · Confidence: 91%
-Occurrences: 4 · State: awaiting acknowledgement
-Evidence: JPEG snapshot
-```
-
-Evidence stays under `data/alerts/` and is excluded from Git.
-
-### External notification rules
-
-Email and optional SMS use a private Flask-to-Node relay. For each event class, external delivery remains gated until at least 20 human-reviewed samples are available and measured precision is at least 90%. After that gate, confirmed HIGH/CRITICAL alerts can be emailed to the signed-in account address with the JPEG snapshot attached. SMS is opt-in and critical-only; the backend rejects every non-critical SMS. Delivery status and recent sent/failed attempts appear in Settings. Configure SMTP (and optionally Twilio) as described below. No provider credentials are committed.
+Email and optional SMS use a private Flask-to-Node relay. External delivery requires at least 20 human-reviewed samples and 90% precision for that event class. Qualified HIGH/CRITICAL incidents email the account address with a JPEG attached. SMS is opt-in and critical-only. Settings shows provider status and recent send results; setup is below.
 
 ## ◉ Product snapshots
 
