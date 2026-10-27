@@ -29,7 +29,8 @@ const ConfigSchema = new mongoose.Schema({
       default: 0.3,
       min: 0,
       max: 1
-    }
+    },
+    criticalOnly: { type: Boolean, default: true, immutable: true }
   },
   cameraSource: {
     type: {

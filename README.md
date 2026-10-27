@@ -38,7 +38,13 @@ The project is a prototype. Its detections are advisory and need evaluation on r
 | Gunshot/explosion audio | YAMNet event score ≥0.65 in one window, or ≥0.30 in two consecutive windows | Strong matches respond in one ~1-second analysis window; lower scores need temporal confirmation. Score ≥0.75 is critical; lower confirmed scores are high. |
 | Repeated same event | One camera/event incident is updated during a 120-second window | The incident keeps the highest severity and refreshed evidence on escalation |
 
-Video evidence is saved as JPEG; audio evidence as WAV. Operators can preview snapshots or play audio evidence directly in the dashboard. Evidence stays under `data/alerts/` and is excluded from Git. External delivery remains behind a rollout gate: at least 20 human-reviewed examples per event class and ≥90% precision for that class. Those class metrics appear in Settings, but delivery providers must be configured separately; no external messages are sent yet. The intended first channel is email/push for confirmed high-severity alerts, with SMS reserved for critical alerts only.
+Video evidence is saved as JPEG; audio evidence as WAV. Operators can preview snapshots or play audio evidence directly in the dashboard. Evidence stays under `data/alerts/` and is excluded from Git. Email and optional SMS delivery are implemented through a private Flask-to-Node relay. Delivery stays blocked per event until that class has at least 20 human-reviewed samples and ≥90% precision. Email targets the signed-in account address and includes the JPEG snapshot; SMS is opt-in, critical-only, and targets the account mobile. Settings show provider configuration and recent send/failure records. Configure SMTP (and optionally Twilio) as described below. No provider credentials are committed.
+
+## ◉ Product snapshots
+
+The project banner above is animated. The screenshot below shows the camera monitoring view while a source is connecting; confirmed alerts display the saved snapshot or audio evidence in the dashboard.
+
+![Sentinel Vision camera monitoring screen](docs/screenshots/camera-preview.png)
 
 ## ▧ Architecture
 
@@ -162,6 +168,8 @@ The manifest supports `normal`, `explosion`, `fire`, `smoke`, `accident`, and `g
 | `GET /api/detections/evaluation` | Calculate per-event precision, recall, and F1 |
 | `POST /api/camera/configure` | Configure a video source |
 | `POST /api/audio-analysis` | Analyze an opt-in microphone window |
+| `GET /api/alerts/status` | Check SMTP/Twilio configuration for the signed-in account |
+| `GET /api/alerts/deliveries` | Review recent outbound send results |
 
 ## ⚙ Configuration
 
@@ -175,15 +183,50 @@ The manifest supports `normal`, `explosion`, `fire`, `smoke`, `accident`, and `g
 | `EVENT_MODEL_INTERVAL` | Specialized visual model sampling interval |
 | `FIRE_SMOKE_MODEL_REPO`, `TRAFFIC_ACCIDENT_MODEL_REPO`, `YAMNET_MODEL_REPO` | Optional Hugging Face model sources |
 | `FIRE_SMOKE_CONFIDENCE`, `ACCIDENT_CONFIDENCE` | Event-model confidence cutoffs |
-| `AUDIO_GUNSHOT_THRESHOLD`, `AUDIO_EXPLOSION_THRESHOLD` | Audio classifier cutoffs |
+| `AUDIO_GUNSHOT_THRESHOLD`, `AUDIO_EXPLOSION_THRESHOLD` | Moderate audio scores requiring two consecutive windows |
+| `AUDIO_GUNSHOT_STRONG_THRESHOLD`, `AUDIO_EXPLOSION_STRONG_THRESHOLD` | Strong one-window audio confirmation cutoff |
+| `ALERT_DISPATCH_SECRET`, `ALERT_DISPATCH_URL` | Private Python-to-Node alert relay; keep the shared secret only in the ignored root `.env` |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | SMTP provider for account email alerts with a JPEG snapshot attachment |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM` | Optional provider configuration for critical-only SMS |
 | `DATABASE_URL` | SQLite event/review database or compatible SQLAlchemy URL |
 
 See [.env.example](.env.example) for the complete local configuration template.
 
+### Configure outbound delivery
+
+1. Set a long random `ALERT_DISPATCH_SECRET` in the ignored root `.env` (for example, generate one with `python -c "import secrets; print(secrets.token_urlsafe(48))"`). Both services load this same file. The account API listens on localhost; the shared secret protects its internal dispatch endpoint.
+2. For email, set `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, and `SMTP_FROM`. For Gmail, use an app password with two-step verification enabled; never use or commit your normal account password.
+3. Restart Flask and the Node account API. Sign in, open **Settings**, enable email, and save. Email goes to the account email on file once that event class clears the review gate.
+4. For optional SMS, configure Twilio's account SID, auth token, and sender number. Enable **Critical SMS only** in Settings. The server rejects SMS for every non-critical event.
+5. Review **Recent sends** in Settings to see sent/failed status. Missing credentials, an unmet accuracy gate, or a provider error leaves the incident in the dashboard and does not report a successful external send.
+
+Email uses Nodemailer's SMTP transport ([provider setup reference](https://nodemailer.com/smtp/)); optional SMS uses Twilio's [Messages REST resource](https://www.twilio.com/docs/messaging/api/message-resource). Provider account charges and recipient policies apply.
+
+Example email subject and body:
+
+```text
+[HIGH] fire · camera_0
+
+Confirmed fire alert
+Severity: HIGH
+Camera: camera_0
+Time: 10/27/2026, 14:32:08
+Confidence: 91.0%
+Repeated detections: 4
+Accuracy gate: 24 reviewed samples, 91.7% precision
+A JPEG evidence snapshot is attached.
+```
+
+Example SMS (critical incidents only):
+
+```text
+CRITICAL GUNSHOT · microphone · 96% · 10/27/2026, 14:32. Review: http://localhost:4300/dashboard
+```
+
 ## ⛨ Privacy and limitations
 
 - Services bind to localhost by default. Do not expose them to the public internet without authentication, access controls, and a reviewed deployment design.
-- Video and audio evidence remain on the machine running the Python service; the alert API serves evidence only on that local service.
+- Video and audio evidence remain on the machine running the Python service unless an accuracy-qualified email alert is sent; that email includes the JPEG snapshot by design. External messages contain event metadata, and SMS contains no image attachment.
 - Account tokens are stored by the browser application. Review the authentication and deployment model before using real accounts.
 - A few reviewed events are not enough to establish accuracy. Track false positives and misses per event on representative day/night, indoor/outdoor, and camera conditions.
 - This prototype is not a substitute for human judgment or certified life-safety systems. Do not rely on it as the only means of detecting emergencies.

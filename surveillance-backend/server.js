@@ -58,6 +58,7 @@ const requireAccountServices = (_req, res, next) => {
 
 app.use('/api/auth', requireAccountServices, require('./routes/auth'));
 app.use('/api/config', requireAccountServices, require('./routes/config'));
+app.use('/api/alerts', requireAccountServices, require('./routes/alerts'));
 
 app.use((err, _req, res, _next) => {
   console.error(err.stack || err.message);

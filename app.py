@@ -10,6 +10,7 @@ import base64
 import shutil
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from collections import OrderedDict
 from pathlib import Path
 from urllib.parse import urlparse
@@ -17,6 +18,7 @@ from datetime import datetime
 from typing import Generator
 from uuid import uuid4
 import numpy as np
+import requests
 
 import cv2
 from flask import Flask, Response, request, redirect, session, flash, jsonify, send_from_directory
@@ -32,7 +34,7 @@ from utils.detection_policy import TemporalDetectionPolicy
 from enhanced_final_ultra_system import EnhancedUltraSystem
 
 
-app = Flask(__name__, static_folder='new_frontend/build', static_url_path='/')
+app = Flask(__name__, static_folder=None)
 app.config['MAX_CONTENT_LENGTH'] = 8 * 1024 * 1024
 app.config['SECRET_KEY'] = Config.SECRET_KEY
 FRONTEND_ORIGINS = [
@@ -69,6 +71,7 @@ detection_results_lock = threading.Lock()
 audio_event_streaks = {'gunshot': 0, 'explosion': 0}
 recent_detection_snapshots = OrderedDict()
 alert_record_lock = threading.Lock()
+alert_delivery_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='alert-delivery')
 feedback_learner = FeedbackThresholdLearner(os.path.join(Config.ROOT_DIR, 'data', 'detection_feedback.json'))
 detection_policy = TemporalDetectionPolicy(feedback_learner)
 
@@ -509,13 +512,13 @@ def generate_frames() -> Generator[bytes, None, None]:
 
 @app.route('/')
 def index():
-    frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:3000').split(',', 1)[0].strip()
+    frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:4300').split(',', 1)[0].strip()
     return redirect(frontend_url.rstrip('/') + '/')
 
 
 @app.route('/login')
 def login_page():
-    frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:3000').split(',', 1)[0].strip()
+    frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:4300').split(',', 1)[0].strip()
     return redirect(frontend_url.rstrip('/') + '/login')
 
 
@@ -678,10 +681,6 @@ def health():
         }
     })
 
-@app.route('/<path:path>')
-def serve(path):
-    return send_from_directory(app.static_folder, path)
-
 @app.route('/dashboard_api')
 def dashboard_api():
     """API endpoint for dashboard data"""
@@ -801,7 +800,7 @@ def _write_alert_evidence(frame=None, audio_samples=None, sample_rate=None):
 
 def record_alert_event(event, risk, confidence, camera_id, source='video', reasoning=None,
                        frame=None, audio_samples=None, sample_rate=None, timestamp=None):
-    """Persist a deduplicated alert; refresh incident evidence only on escalation."""
+    """Persist a deduplicated incident and queue external delivery on new/escalated alerts."""
     event = str(event).lower()
     if event not in FeedbackThresholdLearner.BASE_THRESHOLDS:
         return None
@@ -829,6 +828,8 @@ def record_alert_event(event, risk, confidence, camera_id, source='video', reaso
                     row.reasoning = json.dumps(reasoning, ensure_ascii=False)[:12000]
                 if changed:
                     session.commit()
+                    if escalated:
+                        alert_delivery_executor.submit(_dispatch_external_alert, row.id)
                 return row.id
 
             evidence = _write_alert_evidence(frame, audio_samples, sample_rate)
@@ -847,6 +848,7 @@ def record_alert_event(event, risk, confidence, camera_id, source='video', reaso
             )
             session.add(row)
             session.commit()
+            alert_delivery_executor.submit(_dispatch_external_alert, row.id)
             return row.id
     except Exception:
         session.rollback()
@@ -854,6 +856,72 @@ def record_alert_event(event, risk, confidence, camera_id, source='video', reaso
         return None
     finally:
         session.close()
+
+
+def _dispatch_external_alert(alert_id):
+    """Send only reviewed-accuracy-qualified incidents to the private account API."""
+    endpoint = os.getenv('ALERT_DISPATCH_URL', 'http://127.0.0.1:5001/api/alerts/dispatch')
+    secret = os.getenv('ALERT_DISPATCH_SECRET', '')
+    if not secret:
+        app.logger.info('External alert delivery is not configured; incident %s remains dashboard-only.', alert_id)
+        return
+    session = db_utils.get_session()
+    try:
+        alert = session.query(db_utils.AlertRecord).filter_by(id=alert_id).first()
+        if alert is None or alert.risk not in {'HIGH', 'CRITICAL'}:
+            return
+        reviews = session.query(db_utils.DetectionReview).filter(
+            (db_utils.DetectionReview.predicted_label == alert.event)
+            | (db_utils.DetectionReview.actual_label == alert.event)
+        ).all()
+        true_positives = sum(item.predicted_label == alert.event and item.actual_label == alert.event for item in reviews)
+        false_positives = sum(item.predicted_label == alert.event and item.actual_label != alert.event for item in reviews)
+        precision = true_positives / (true_positives + false_positives) if true_positives + false_positives else 0.0
+        accuracy = {'labeledSamples': len(reviews), 'precision': round(precision, 4)}
+        if accuracy['labeledSamples'] < 20 or accuracy['precision'] < 0.90:
+            app.logger.info('Delivery gate held for %s: %s reviewed samples, %.1f%% precision.', alert.event, len(reviews), precision * 100)
+            return
+        snapshot = None
+        if alert.evidence_path and Path(alert.evidence_path).suffix.lower() in {'.jpg', '.jpeg'}:
+            evidence_path = Path(Config.DATA_DIR) / 'alerts' / alert.evidence_path
+            try:
+                content = evidence_path.read_bytes()
+                if len(content) <= 600_000:
+                    snapshot = {'mimeType': 'image/jpeg', 'data': base64.b64encode(content).decode('ascii')}
+            except OSError:
+                pass
+        payload = {
+            'alertId': str(alert.id), 'event': alert.event, 'risk': alert.risk,
+            'confidence': float(alert.confidence or 0), 'camera': alert.camera_id,
+            'source': alert.source, 'timestamp': alert.last_seen.isoformat(),
+            'occurrences': int(alert.occurrences or 1), 'accuracy': accuracy, 'snapshot': snapshot,
+        }
+    except Exception:
+        app.logger.exception('Could not prepare alert delivery %s', alert_id)
+        return
+    finally:
+        session.close()
+    for attempt in range(3):
+        try:
+            response = requests.post(
+                endpoint,
+                json=payload,
+                headers={'x-alert-dispatch-secret': secret},
+                timeout=(2.0, 15.0),
+            )
+            if response.status_code >= 400:
+                app.logger.warning('Account alert relay returned HTTP %s for incident %s.', response.status_code, alert_id)
+                if attempt < 2:
+                    time.sleep(1 + attempt * 2)
+                    continue
+            elif int(response.json().get('summary', {}).get('failed', 0)) > 0 and attempt < 2:
+                time.sleep(1 + attempt * 2)
+                continue
+            return
+        except (requests.RequestException, ValueError) as error:
+            app.logger.warning('Account alert relay attempt %s failed for incident %s: %s', attempt + 1, alert_id, error)
+            if attempt < 2:
+                time.sleep(1 + attempt * 2)
 
 
 # Socket.IO events
