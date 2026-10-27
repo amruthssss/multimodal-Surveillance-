@@ -1,4 +1,5 @@
 # Run all project services after completing the README setup.
+Remove-Item Env:SSLKEYLOGFILE -ErrorAction SilentlyContinue
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $requiredPaths = @(
     (Join-Path $projectRoot '.env'),
@@ -17,4 +18,4 @@ Start-Process powershell -ArgumentList '-NoExit', '-Command', "Set-Location '$pr
 Start-Process powershell -ArgumentList '-NoExit', '-Command', "Set-Location '$projectRoot\surveillance-backend'; npm start"
 Start-Process powershell -ArgumentList '-NoExit', '-Command', "Set-Location '$projectRoot\surveillance-frontend'; npm run dev"
 Start-Sleep -Seconds 5
-Start-Process 'http://localhost:3000'
+Start-Process 'http://127.0.0.1:4300'

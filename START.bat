@@ -1,6 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0"
+set "SSLKEYLOGFILE="
 
 if not exist ".env" (
   echo Missing .env. Copy .env.example to .env and set JWT_SECRET first.
@@ -28,8 +29,8 @@ start "Surveillance API" cmd /k "cd /d ""%~dp0surveillance-backend"" && npm star
 start "Surveillance Frontend" cmd /k "cd /d ""%~dp0surveillance-frontend"" && npm run dev"
 
 timeout /t 5 /nobreak >nul
-start "" http://localhost:3000
+start "" http://127.0.0.1:4300
 echo AI service: http://localhost:5000/health
 echo API:        http://localhost:5001/api/health
-echo Frontend:   http://localhost:3000
+echo Frontend:   http://127.0.0.1:4300
 pause
