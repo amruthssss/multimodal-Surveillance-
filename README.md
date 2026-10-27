@@ -29,16 +29,36 @@ The project is a prototype. Its detections are advisory and need evaluation on r
 - **Learns from explicit review:** correct, false-alarm, and missed-event labels are saved and adjust per-event thresholds. This changes decision thresholds; it does not retrain neural-network weights.
 - **Measures performance:** the Event Intelligence view reports reviewed-example precision/recall. An offline evaluator measures labeled video and audio clips.
 
-## ⌁ Alert policy
+## ⌁ Alerting and delivery
+
+### Confirmation and incident handling
 
 | Signal | Confirmation | Escalation |
 | --- | --- | --- |
 | Fire, smoke, accident | Event-specific confidence threshold and 2 matching results in the last 3 inference samples | Critical requires 3 matching samples and at least 85% confidence |
 | Explosion in video | Same 2-of-3 confirmation; visual evidence is checked for the event | A strong fast path can mark critical at 95% only when at least 3 explosion cues agree; otherwise critical requires 3 samples |
 | Gunshot/explosion audio | YAMNet event score ≥0.65 in one window, or ≥0.30 in two consecutive windows | Strong matches respond in one ~1-second analysis window; lower scores need temporal confirmation. Score ≥0.75 is critical; lower confirmed scores are high. |
-| Repeated same event | One camera/event incident is updated during a 120-second window | The incident keeps the highest severity and refreshed evidence on escalation |
+| Repeated same event | Same camera and event are grouped for 120 seconds | One incident’s occurrence count and last-seen time are updated; higher severity replaces its risk and refreshes its evidence |
 
-Video evidence is saved as JPEG; audio evidence as WAV. Operators can preview snapshots or play audio evidence directly in the dashboard. Evidence stays under `data/alerts/` and is excluded from Git. Email and optional SMS delivery are implemented through a private Flask-to-Node relay. Delivery stays blocked per event until that class has at least 20 human-reviewed samples and ≥90% precision. Email targets the signed-in account address and includes the JPEG snapshot; SMS is opt-in, critical-only, and targets the account mobile. Settings show provider configuration and recent send/failure records. Configure SMTP (and optionally Twilio) as described below. No provider credentials are committed.
+### Dashboard-first operator review
+
+Every confirmed event is persisted and appears in the dashboard alert queue first. Each incident includes the event label, severity, camera or microphone source, first/last seen time, confidence, repeat count, and evidence. Video evidence is saved as a JPEG snapshot; audio evidence is saved as a WAV clip. Operators can preview/play the evidence and acknowledge the incident. Repeated detections for the same camera and event update that incident for 120 seconds; a severity increase escalates the existing incident and refreshes its evidence.
+
+Example dashboard alert:
+
+```text
+FIRE · HIGH
+Camera: camera_0 · Source: video
+Time: 10/27/2026, 14:32:08 · Confidence: 91%
+Occurrences: 4 · State: awaiting acknowledgement
+Evidence: JPEG snapshot
+```
+
+Evidence stays under `data/alerts/` and is excluded from Git.
+
+### External notification rules
+
+Email and optional SMS use a private Flask-to-Node relay. For each event class, external delivery remains gated until at least 20 human-reviewed samples are available and measured precision is at least 90%. After that gate, confirmed HIGH/CRITICAL alerts can be emailed to the signed-in account address with the JPEG snapshot attached. SMS is opt-in and critical-only; the backend rejects every non-critical SMS. Delivery status and recent sent/failed attempts appear in Settings. Configure SMTP (and optionally Twilio) as described below. No provider credentials are committed.
 
 ## ◉ Product snapshots
 
