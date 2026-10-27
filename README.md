@@ -138,9 +138,3 @@ See [.env.example](.env.example) for configuration variables.
 
 </details>
 
-## Privacy and limitations
-
-- Services bind to localhost by default; review authentication and access controls before remote exposure.
-- Evidence stays on the Python service except JPEGs attached to qualified email alerts; SMS contains metadata only.
-- Detections are advisory and are not a substitute for human judgment or certified life-safety systems.
-- Check this project and model licenses before redistribution or commercial use. Model weights are not included.
