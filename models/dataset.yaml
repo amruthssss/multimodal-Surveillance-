@@ -8,11 +8,11 @@ val: val/images
 
 nc: 4  # Number of classes
 
-# Class names (based on your dataset)
+# Class names for the current visual event scope. Gunshot is audio-only.
 names:
   0: explosion
-  1: fighting  
-  2: fire
+  1: fire
+  2: smoke
   3: vehicle_accident
 
 # Training configuration (optional reference)

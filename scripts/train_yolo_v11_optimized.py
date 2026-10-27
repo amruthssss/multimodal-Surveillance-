@@ -1,5 +1,5 @@
 """
-OPTIMIZED YOLO v11 TRAINING SCRIPT FOR 95%+ ACCURACY
+YOLO26 TRAINING SCRIPT
 Configured for your datasets: fire, vehicle_accident, fighting
 Uses advanced hyperparameters and data augmentation
 """
@@ -21,14 +21,14 @@ def check_gpu():
         print("⚠️  No GPU detected, using CPU (will be slower)")
         return False
 
-def train_yolo_v11_optimized():
+def train_yolo26():
     """
-    Train YOLO v11 with optimized settings for 95%+ accuracy
+    Train YOLO26 with configurable settings; measured quality depends on the dataset.
     """
     print("\n" + "="*70)
-    print("🎯 YOLO v11 OPTIMIZED TRAINING")
+    print("🎯 YOLO26 TRAINING")
     print("="*70)
-    print("Target: 95%+ mAP (Mean Average Precision)")
+    print("Evaluate with held-out footage after training.")
     print("Events: fire, vehicle_accident, fighting")
     print("="*70)
     
@@ -48,28 +48,28 @@ def train_yolo_v11_optimized():
     
     # Model selection
     print("\n📦 MODEL SELECTION:")
-    print("   1. yolov11n.pt - Nano (Fast, 85-90% accuracy)")
-    print("   2. yolov11s.pt - Small (Balanced, 90-93% accuracy)")
-    print("   3. yolov11m.pt - Medium (Best for 95%+ accuracy) ⭐ RECOMMENDED")
-    print("   4. yolov11l.pt - Large (Best accuracy, slower)")
+    print("   1. yolo26n.pt - Nano (smallest)")
+    print("   2. yolo26s.pt - Small")
+    print("   3. yolo26m.pt - Medium (default)")
+    print("   4. yolo26l.pt - Large")
     
     model_choice = input("\nChoose model (1/2/3/4) [default: 3]: ").strip() or '3'
     
     models = {
-        '1': 'yolov11n.pt',
-        '2': 'yolov11s.pt',
-        '3': 'yolov11m.pt',
-        '4': 'yolov11l.pt'
+        '1': 'yolo26n.pt',
+        '2': 'yolo26s.pt',
+        '3': 'yolo26m.pt',
+        '4': 'yolo26l.pt'
     }
     
-    model_name = models.get(model_choice, 'yolov11m.pt')
+    model_name = models.get(model_choice, 'yolo26m.pt')
     print(f"\n✅ Selected: {model_name}")
     
     # Load model
     print(f"\n📥 Loading {model_name}...")
     model = YOLO(model_name)
     
-    # Training configuration for 95%+ accuracy
+    # Starting configuration; benchmark on task-specific validation footage.
     print("\n⚙️  TRAINING CONFIGURATION:")
     print("="*70)
     
@@ -86,7 +86,7 @@ def train_yolo_v11_optimized():
         'device': device,
         'workers': 8,               # Data loading workers
         'project': 'runs/train',
-        'name': 'yolo_v11_95_percent',
+        'name': 'yolo26_custom_events',
         'exist_ok': True,
         'pretrained': True,
         'optimizer': 'auto',        # Auto-select best optimizer
@@ -216,15 +216,15 @@ def train_yolo_v11_optimized():
                 print(f"   mAP@50-95: {map50_95:.2f}%")
         
         print(f"\n📋 NEXT STEPS:")
-        print(f"   1. Test model: python test_cctv_system.py --model {best_model}")
-        print(f"   2. View results: runs/train/yolo_v11_95_percent/")
+        print(f"   1. Evaluate model on held-out CCTV footage: {best_model}")
+        print(f"   2. View results: {Path(config['project']) / config['name']}")
         print(f"   3. Check plots: results.png, confusion_matrix.png")
         
         print("\n" + "="*70)
         
     except KeyboardInterrupt:
         print("\n\n⚠️  Training interrupted by user")
-        print("   Model checkpoints saved in: runs/train/yolo_v11_95_percent/weights/")
+        print("   Checkpoints are saved in the configured training output folder.")
         print("   You can resume with: resume=True")
     except Exception as e:
         print(f"\n❌ Training failed: {e}")
@@ -232,4 +232,4 @@ def train_yolo_v11_optimized():
         traceback.print_exc()
 
 if __name__ == "__main__":
-    train_yolo_v11_optimized()
+    train_yolo26()

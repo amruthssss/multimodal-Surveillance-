@@ -1,7 +1,7 @@
 """
 MAIN FILE - Multi-Modal Surveillance System
 Detects: Accidents, Explosions, Fire, Smoke, Fighting
-Uses 221,660+ learned patterns from web sources
+Uses local heuristics and optional locally supplied model weights
 
 Usage:
     python main.py                           # Interactive mode
@@ -48,7 +48,7 @@ def main():
     print("  💨 Smoke")
     print("  👊 Fighting")
     print()
-    print("Using 221,660+ learned patterns (80% Agent + 20% YOLO)")
+    print("Using heuristic analysis and any available local YOLO weights")
     print("=" * 80)
     print()
     
@@ -88,8 +88,7 @@ def main():
     
     # Create system (without audio for faster processing)
     print("🔧 Initializing Enhanced Ultra Hybrid System...")
-    print("   Loading YOLOv11m model...")
-    print("   Loading 221,660 learned patterns...")
+    print("   Loading optional event and object detection models...")
     system = EnhancedUltraSystem(
         model_path='runs/detect/train/weights/best.pt',
         use_audio=False

@@ -43,7 +43,7 @@ class Config:
     MODELS_DIR = ROOT_DIR / 'models'
     
     # Model files (only used for boosting if available)
-    YOLO_MODEL = str(MODELS_DIR / 'best.pt')  # Or yolov8n.pt
+    YOLO_MODEL = os.getenv('YOLO_MODEL', 'yolo26n.pt')
     ACTION_MODEL = str(MODELS_DIR / 'best_model.pth')
     AUDIO_MODEL = str(MODELS_DIR / 'sound_panns_cnn14.pth')
     
@@ -103,6 +103,13 @@ class Config:
     }
     
     DEFAULT_THRESHOLD = 0.70
+
+    # Relative evidence weights for the optional modality fusion utility.
+    FUSION_WEIGHTS = {
+        'action': 0.5,
+        'pose': 0.2,
+        'audio': 0.3,
+    }
     
     # ========================================================================
     # PERFORMANCE SETTINGS
@@ -142,7 +149,7 @@ class Config:
     
     # Video
     VIDEO_SOURCE = os.getenv('VIDEO_SOURCE', '0')
-    FRAME_INTERVAL = int(os.getenv('FRAME_INTERVAL', '1'))
+    FRAME_INTERVAL = max(1, int(os.getenv('FRAME_INTERVAL', '6')))
     SAVE_MEDIA = os.getenv('SAVE_MEDIA', 'true').lower() == 'true'
     
     # Paths
@@ -189,11 +196,11 @@ class Config:
         count = sum(models.values())
         
         if count == 0:
-            return 'AGENT_ONLY'      # 100% agent, 95-98% accuracy
+            return 'AGENT_ONLY'
         elif count == 3:
-            return 'FULL_SYSTEM'     # 80% agent + 20% models, 99%+ accuracy
+            return 'FULL_SYSTEM'
         else:
-            return 'PARTIAL_BOOST'   # 80% agent + partial models, 96-99% accuracy
+            return 'PARTIAL_BOOST'
     
     @staticmethod
     def print_config():
@@ -220,14 +227,8 @@ class Config:
         print(f"   Audio:  {'✅ Available' if models['audio'] else '❌ Missing'}")
         
         mode = Config.get_system_mode()
-        accuracy = {
-            'AGENT_ONLY': '95-98%',
-            'PARTIAL_BOOST': '96-99%',
-            'FULL_SYSTEM': '99%+'
-        }
-        
         print(f"\n🚀 System Mode: {mode}")
-        print(f"   Expected Accuracy: {accuracy.get(mode, '95%+')}")
+        print("   Accuracy: not benchmarked")
         print("=" * 60)
 
 Config.ensure_dirs()

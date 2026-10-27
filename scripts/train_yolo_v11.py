@@ -24,7 +24,7 @@ def parse_args():
     p.add_argument('--batch', type=int, default=16)
     p.add_argument('--img', type=int, default=640)
     p.add_argument('--project', default='runs/train')
-    p.add_argument('--name', default='yolov11_exp')
+    p.add_argument('--name', default='yolo26_exp')
     p.add_argument('--device', default='0')
     return p.parse_args()
 
@@ -37,10 +37,10 @@ if __name__ == '__main__':
         print(f"data.yaml not found: {data_yaml}")
         exit(1)
 
-    print(f"Starting YOLOv11 training: data={data_yaml} epochs={args.epochs} batch={args.batch} img={args.img}")
+    print(f"Starting YOLO26 training: data={data_yaml} epochs={args.epochs} batch={args.batch} img={args.img}")
 
     # Create a new model or load base
-    model = YOLO('yolov11n.pt') if Path('yolov11n.pt').exists() else YOLO('yolov8n.pt')
+    model = YOLO('yolo26n.pt')
 
     # Train
     model.train(data=data_yaml,

@@ -1,10 +1,9 @@
 """YOLO Wrapper
-Handles lazy loading of a YOLOv8 model (ultralytics) for object detection.
+Handles lazy loading of an Ultralytics YOLO model for object detection.
 Falls back gracefully if weights are missing; can auto-download.
 Supports custom-trained models with class mapping.
 """
 from __future__ import annotations
-from pathlib import Path
 from typing import List, Dict, Any
 import os
 import sys
@@ -31,7 +30,7 @@ except ImportError:
 
 # Try custom model first, fallback to default
 CUSTOM_MODEL = 'models/best.pt'
-DEFAULT_MODEL = 'yolov8n.pt'
+DEFAULT_MODEL = os.getenv('YOLO_MODEL', 'yolo26n.pt')
 
 class YOLOWrapper:
     def __init__(self, weights: str | None = None, auto_download: bool = True):
@@ -72,12 +71,15 @@ class YOLOWrapper:
                         self._model = None
                         print(f"❌ Failed to load YOLO model: {e}")
 
-    def detect(self, frame) -> Dict[str, Any]:
+    def detect(self, frame, conf_threshold: float = 0.25) -> Dict[str, Any]:
         if self._model is None:
-            return {'objects': []}
+            return {'objects': [], 'detections': []}
         try:
-            results = self._model.predict(source=frame, verbose=False, imgsz=640)[0]
+            results = self._model.predict(
+                source=frame, verbose=False, imgsz=640, conf=conf_threshold
+            )[0]
             objs: List[Dict[str, Any]] = []
+            event_detections: List[Dict[str, Any]] = []
             
             for box in results.boxes:
                 cls_id = int(box.cls[0])
@@ -102,12 +104,13 @@ class YOLOWrapper:
                         detection['event'] = event_name
                         detection['display_name'] = display_name
                         detection['risk_level'] = RISK_LEVELS.get(event_name, 'MEDIUM')
+                        event_detections.append(detection.copy())
                         objs.append(detection)
                 else:
                     # Default YOLO classes (80 COCO classes)
                     objs.append(detection)
             
-            return {'objects': objs}
+            return {'objects': objs, 'detections': event_detections}
         except Exception as e:
             print(f"YOLO detection error: {e}")
-            return {'objects': []}
+            return {'objects': [], 'detections': []}

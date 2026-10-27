@@ -25,7 +25,16 @@ from utils.yolo_wrapper import YOLOWrapper
 from utils.emotion_wrapper import EmotionWrapper
 from utils.action_wrapper import ActionWrapper
 from utils.audio_wrapper import AudioWrapper
-from utils.svm_wrapper import SVMWrapper
+try:
+    from utils.svm_wrapper import SVMWrapper
+except ImportError:
+    class SVMWrapper:
+        """Unavailable optional model; keep the other modalities usable."""
+        def __init__(self, *args, **kwargs):
+            self.model = None
+
+        def predict(self, frame):
+            return 'unavailable', 0.0
 
 # Import class mapping
 import sys
@@ -122,7 +131,7 @@ class SmartFusionEngine:
         """Initialize YOLO - primary detector"""
         try:
             print("⚡ Loading YOLO (Primary Detector)...")
-            model_path = 'models/best.pt' if os.path.exists('models/best.pt') else 'yolov8n.pt'
+            model_path = os.getenv('YOLO_MODEL', 'models/best.pt' if os.path.exists('models/best.pt') else 'yolo26n.pt')
             yolo = YOLOWrapper(weights=model_path, auto_download=True)
             print(f"   ✅ YOLO ready - {model_path}")
             return yolo
@@ -186,14 +195,18 @@ class SmartFusionEngine:
         yolo_detections = self._run_yolo_fast(frame)
         
         # Determine primary threat from YOLO
-        if yolo_detections:
-            top_detection = max(yolo_detections, key=lambda d: d['confidence'])
+        event_detections = [
+            detection for detection in yolo_detections
+            if detection.get('event') in {'explosion', 'fighting', 'fire', 'vehicle_accident'}
+        ]
+        if event_detections:
+            top_detection = max(event_detections, key=lambda d: d.get('confidence', 0.0))
             primary_threat = top_detection['event']
-            yolo_confidence = top_detection['confidence']
-            threat_level = top_detection['risk_level']
+            yolo_confidence = float(top_detection.get('confidence', 0.0))
+            threat_level = top_detection.get('risk_level', 'MEDIUM')
         else:
             primary_threat = 'normal'
-            yolo_confidence = 0.9
+            yolo_confidence = 0.0
             threat_level = 'LOW'
         
         # === STEP 2: LEARNING MODELS (Periodic) ===

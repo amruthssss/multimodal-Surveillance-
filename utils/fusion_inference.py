@@ -28,6 +28,7 @@ Outputs:
 """
 from __future__ import annotations
 from typing import Dict, Any, List, Tuple
+import math
 import os
 from config.config import Config
 
@@ -50,7 +51,11 @@ def _top_prob(d: Dict[str, float]) -> Tuple[str, float]:
 
 def _collect_probability_map(modality_data: Any) -> Dict[str, float]:
     if isinstance(modality_data, dict):
-        return {k: float(v) for k, v in modality_data.items() if isinstance(v, (int, float))}
+        probabilities = {}
+        for key, value in modality_data.items():
+            if isinstance(value, (int, float)) and math.isfinite(float(value)):
+                probabilities[key] = max(0.0, min(1.0, float(value)))
+        return probabilities
     return {}
 
 def fuse_modalities(outputs: Dict[str, Any]) -> Dict[str, Any]:
@@ -140,7 +145,7 @@ def fuse_modalities(outputs: Dict[str, Any]) -> Dict[str, Any]:
     for k, v in emotion_probs.items():
         if k in EMOTION_ESCALATE and v > 0.5:
             escalation_bonus += 0.2 * v
-    confidence += escalation_bonus
+    confidence = min(1.0, confidence + escalation_bonus)
     if escalation_bonus:
         reasons.append(('escalation', 'bonus', escalation_bonus))
 

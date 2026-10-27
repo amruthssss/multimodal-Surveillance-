@@ -1,15 +1,25 @@
-node_modules
+node_modules/
+surveillance-frontend/node_modules/
+surveillance-frontend/dist/
+surveillance-backend/node_modules/
+work/
+Ultralytics/
 
 # Model files and weights (SENSITIVE - exclude from public repo)
 models/*.pkl
 models/*.pth
 models/*.pt
+models/**/*.pt
 models/*.h5
 models/*.keras
 models/*.json
+models/*.onnx
+models/**/*.onnx
+models/**/*.csv
 models/emotion_model_savedmodel/
 runs/
 yolov8n.pt
+yolo26n.pt
 
 # Video files (large, not for version control)
 *.mp4
@@ -46,6 +56,10 @@ Thumbs.db
 # Data directories
 data/logs/
 data/uploads/
+data/alerts/
+data/detection_feedback.json
+evaluation/manifest.csv
+evaluation/report.json
 
 # Credentials and secrets
 *.env

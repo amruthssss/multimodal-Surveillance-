@@ -1,46 +1,35 @@
 @echo off
-cls
-echo ================================================
-echo  SURVEILLANCE SYSTEM - QUICK START
-echo ================================================
-echo.
+setlocal
+cd /d "%~dp0"
 
-echo [Step 1/3] Starting Backend Server (MongoDB + Express + JWT)...
-echo.
-start cmd /k "cd /d %~dp0surveillance-backend && echo Backend Server Starting... && npm start"
-timeout /t 3 /nobreak >nul
+if not exist ".env" (
+  echo Missing .env. Copy .env.example to .env and set JWT_SECRET first.
+  pause
+  exit /b 1
+)
+if not exist "venv\Scripts\python.exe" (
+  echo Missing Python environment. Create venv and install requirements.txt first.
+  pause
+  exit /b 1
+)
+if not exist "surveillance-backend\node_modules" (
+  echo Missing Node dependencies. Run npm install in surveillance-backend first.
+  pause
+  exit /b 1
+)
+if not exist "surveillance-frontend\node_modules" (
+  echo Missing frontend dependencies. Run npm install in surveillance-frontend first.
+  pause
+  exit /b 1
+)
 
-echo [Step 2/3] Starting Frontend Server (React App)...
-echo.
-start cmd /k "cd /d %~dp0surveillance-frontend && echo Frontend Server Starting... && npm start"
-timeout /t 3 /nobreak >nul
+start "Surveillance AI" cmd /k "cd /d ""%~dp0"" && venv\Scripts\python.exe app.py"
+start "Surveillance API" cmd /k "cd /d ""%~dp0surveillance-backend"" && npm start"
+start "Surveillance Frontend" cmd /k "cd /d ""%~dp0surveillance-frontend"" && npm run dev"
 
-echo [Step 3/3] Opening Browser...
-echo.
 timeout /t 5 /nobreak >nul
-start http://localhost:3000
-
-echo.
-echo ================================================
-echo  SERVERS STARTED!
-echo ================================================
-echo.
-echo Backend:  http://localhost:5001/api
-echo Frontend: http://localhost:3000
-echo.
-echo Tailwind Landing: http://localhost:3000/landing-tailwind.html
-echo React Landing:    http://localhost:3000
-echo.
-echo INSTRUCTIONS:
-echo 1. Wait for both servers to finish starting (15-30 seconds)
-echo 2. Browser will open automatically to http://localhost:3000
-echo 3. Click "GET STARTED" or "SIGN UP" button
-echo 4. Register new account (username, email, mobile, password)
-echo 5. Check backend console window for 6-digit OTP code
-echo 6. Enter OTP to verify account
-echo 7. Login and access Dashboard
-echo 8. Configure camera (try Built-in Camera option!)
-echo.
-echo To stop servers: Close both command windows or press Ctrl+C
-echo.
+start "" http://localhost:3000
+echo AI service: http://localhost:5000/health
+echo API:        http://localhost:5001/api/health
+echo Frontend:   http://localhost:3000
 pause

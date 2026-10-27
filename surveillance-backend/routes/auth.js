@@ -1,5 +1,7 @@
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
+const { randomInt } = require('crypto');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { protect } = require('../middleware/auth');
@@ -13,7 +15,7 @@ const generateToken = (id) => {
 
 // Generate OTP (6 digits)
 const generateOTP = () => {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  return randomInt(100000, 1000000).toString();
 };
 
 // @route   POST /api/auth/register
@@ -21,7 +23,12 @@ const generateOTP = () => {
 // @access  Public
 router.post('/register', async (req, res) => {
   try {
-    const { username, email, mobile, password, confirmPassword } = req.body;
+    const body = req.body || {};
+    const username = typeof body.username === 'string' ? body.username.trim() : '';
+    const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+    const mobile = typeof body.mobile === 'string' ? body.mobile.trim() : '';
+    const password = typeof body.password === 'string' ? body.password : '';
+    const confirmPassword = typeof body.confirmPassword === 'string' ? body.confirmPassword : '';
 
     // Validation
     if (!username || !email || !mobile || !password || !confirmPassword) {
@@ -31,10 +38,24 @@ router.post('/register', async (req, res) => {
       });
     }
 
+    if (username.length < 3 || !/^\S+@\S+\.\S+$/.test(email) || !/^\d{10}$/.test(mobile) || password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Provide a username of at least 3 characters, a valid email, a 10-digit mobile number, and a password of at least 6 characters.'
+      });
+    }
+
     if (password !== confirmPassword) {
       return res.status(400).json({
         success: false,
         message: 'Passwords do not match'
+      });
+    }
+
+    if (process.env.NODE_ENV !== 'development') {
+      return res.status(503).json({
+        success: false,
+        message: 'Email/SMS OTP delivery is not configured. Registration is available in development mode only.'
       });
     }
 
@@ -65,12 +86,13 @@ router.post('/register', async (req, res) => {
       isVerified: false
     });
 
-    // In production, send OTP via email/SMS
-    console.log(`📱 OTP for ${email}: ${otp}`);
+    console.log(`📱 Development OTP for ${email}: ${otp}`);
 
     res.status(201).json({
       success: true,
-      message: 'Registration successful. OTP sent to email and mobile.',
+      message: process.env.NODE_ENV === 'development'
+        ? 'Registration successful. Use the development OTP returned by the API.'
+        : 'Registration successful. OTP delivery is not configured; contact the administrator.',
       data: {
         userId: user._id,
         email: user.email,
@@ -93,9 +115,11 @@ router.post('/register', async (req, res) => {
 // @access  Public
 router.post('/verify-otp', async (req, res) => {
   try {
-    const { userId, otp } = req.body;
+    const body = req.body || {};
+    const userId = body.userId;
+    const otp = typeof body.otp === 'string' ? body.otp.trim() : '';
 
-    if (!userId || !otp) {
+    if (!mongoose.Types.ObjectId.isValid(userId) || !otp) {
       return res.status(400).json({
         success: false,
         message: 'Please provide userId and OTP'
@@ -167,7 +191,10 @@ router.post('/verify-otp', async (req, res) => {
 // @access  Public
 router.post('/resend-otp', async (req, res) => {
   try {
-    const { userId } = req.body;
+    const { userId } = req.body || {};
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ success: false, message: 'Please provide userId' });
+    }
 
     const user = await User.findById(userId);
 
@@ -185,6 +212,13 @@ router.post('/resend-otp', async (req, res) => {
       });
     }
 
+    if (process.env.NODE_ENV !== 'development') {
+      return res.status(503).json({
+        success: false,
+        message: 'Email/SMS OTP delivery is not configured. OTP resend is available in development mode only.'
+      });
+    }
+
     const otp = generateOTP();
     const otpExpires = new Date(Date.now() + 10 * 60 * 1000);
 
@@ -192,11 +226,13 @@ router.post('/resend-otp', async (req, res) => {
     user.otpExpires = otpExpires;
     await user.save();
 
-    console.log(`📱 Resent OTP for ${user.email}: ${otp}`);
+    console.log(`📱 Development OTP regenerated for ${user.email}: ${otp}`);
 
     res.status(200).json({
       success: true,
-      message: 'OTP resent successfully',
+      message: process.env.NODE_ENV === 'development'
+        ? 'OTP regenerated. Use the development OTP returned by the API.'
+        : 'OTP regenerated, but delivery is not configured.',
       otp: process.env.NODE_ENV === 'development' ? otp : undefined
     });
 
@@ -214,16 +250,21 @@ router.post('/resend-otp', async (req, res) => {
 // @access  Public
 router.post('/login', async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const body = req.body || {};
+    const identifier = typeof body.identifier === 'string' ? body.identifier.trim() : (typeof body.username === 'string' ? body.username.trim() : '');
+    const password = typeof body.password === 'string' ? body.password : '';
 
-    if (!username || !password) {
+    if (!identifier || !password) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide username and password'
+        message: 'Please provide a username or email and password'
       });
     }
 
-    const user = await User.findOne({ username }).select('+password');
+    const normalizedIdentifier = identifier.toLowerCase();
+    const user = await User.findOne({
+      $or: [{ username: identifier }, { email: normalizedIdentifier }]
+    }).select('+password');
 
     if (!user) {
       return res.status(401).json({

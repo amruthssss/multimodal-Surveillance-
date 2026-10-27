@@ -1,249 +1,193 @@
-# Multi-Modal Surveillance Detection System 🚨
+<p align="center">
+  <img src="docs/assets/sentinel-vision-hero.svg" alt="Animated Sentinel Vision operations display" width="100%" />
+</p>
 
-AI-powered real-time surveillance system that detects accidents, explosions, fire, smoke, and fighting using hybrid detection (YOLOv11 + AI Agent).
+<p align="center">
+  <a href="https://github.com/amruthssss/multimodal-Surveillance-"><img alt="Project" src="https://img.shields.io/badge/Sentinel-Vision-ff3b35?style=for-the-badge&logo=proton&logoColor=white"></a>
+  <img alt="Python" src="https://img.shields.io/badge/Python-3.12%2B-3776AB?style=for-the-badge&logo=python&logoColor=white">
+  <img alt="React" src="https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=101010">
+  <img alt="Local AI" src="https://img.shields.io/badge/Inference-Local-222?style=for-the-badge&logo=ollama&logoColor=white">
+</p>
 
-> **Note**: This is the public version. Pre-trained models and pattern files are not included due to size constraints. See training instructions below.
-
-## 🎯 Features
-
-- **🚗 Vehicle Accident Detection**: Detects collisions with motion spike analysis (200-450 range)
-- **💥 Explosion Detection**: Identifies sudden bursts with radial motion and bright flashes
-- **🔥 Fire Detection**: Recognizes flames with color analysis and flickering patterns
-- **💨 Smoke Detection**: Detects gray/black plumes with slow drift patterns
-- **👊 Fighting Detection**: Identifies physical altercations with irregular human motion
-
-## 🧠 Technology Stack
-
-- **YOLOv11m**: Custom trained model (75.5% mAP@50, 4 classes)
-- **AI Agent**: Pattern-based detection with 221,660+ learned patterns
-- **Hybrid Fusion**: 80% AI Agent + 20% YOLO weighted detection
-- **Optical Flow**: Farneback method for motion analysis
-- **Morphological Filtering**: HSV-based color segmentation
-- **Temporal Validation**: Streak requirement to prevent false positives
-
-## 📋 Requirements
-
-```txt
-opencv-python>=4.8.0
-numpy>=1.24.0
-torch>=2.0.0
-ultralytics>=8.0.0
-Pillow>=10.0.0
-scikit-learn>=1.3.0
-requests>=2.31.0
-beautifulsoup4>=4.12.0
-```
-
-## 🚀 Quick Start
-
-### 1. Installation
-
-```bash
-# Clone repository
-git clone https://github.com/amruthssss/ss.git
-cd ss
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### 2. Download Model
-
-Place your trained YOLOv11 model in:
-```
-runs/detect/train/weights/best.pt
-```
-
-Or train your own model with the provided dataset structure.
-
-### 3. Run Detection
-
-```bash
-# Interactive mode
-python main.py
-
-# Or specify video directly
-python main.py --video path/to/video.mp4
-```
-
-## 📊 Model Performance
-
-| Metric | Value |
-|--------|-------|
-| mAP@50 | 75.5% |
-| Precision | 75.6% |
-| Recall | 72.8% |
-| Classes | 4 (fire, accident, fighting, explosion) |
-| Epochs | 130 |
-
-## 🎨 Detection Output
-
-The system displays:
-- **White text alerts**: "ALERT: [EVENT]!"
-- **Confidence score**: "Confidence: XX.X%"
-- **Frame number**: "Frame: X/Y"
-- **Clean video**: No colored overlays, just text
-
-## 🔧 Configuration
-
-### Detection Thresholds
-
-Edit `enhanced_final_ultra_system.py`:
-
-```python
-self.thresholds = {
-    'accident': {
-        'motion_spike': 200,        # Motion spike range: 200-450
-        'confidence': 65.0          # Detection confidence
-    },
-    'explosion': {
-        'brightness_spike': 180,
-        'confidence': 70.0
-    },
-    # ... other events
-}
-```
-
-### Streak Validation
-
-```python
-self.streak_requirement = 5  # Frames needed to confirm alert
-```
-
-## 📂 Project Structure
-
-```
-├── main.py                          # Main entry point
-├── enhanced_final_ultra_system.py   # Core detection system
-├── smart_event_differentiator.py    # Event differentiation logic
-├── web_pattern_learner.py          # Pattern learning from web
-├── learn_from_patterns.py          # Threshold optimization
-├── models/                          # Trained models & patterns
-│   ├── best.pt                     # YOLOv11 weights
-│   └── *.pkl                       # Learned patterns (221K+)
-├── test_*.py                        # Test scripts
-└── requirements.txt                 # Dependencies
-```
-
-## 🧪 Testing
-
-```bash
-# Test on sample video
-python test_dtest.py
-
-# Test accident detection
-python test_road_accident.py
-
-# Learn from collected patterns
-python learn_from_patterns.py
-```
-
-## 🎓 How It Works
-
-### 1. Hybrid Detection
-- **YOLO**: Fast object detection for vehicles, fire, smoke
-- **AI Agent**: Pattern-based analysis with learned characteristics
-- **Fusion**: Weighted combination (80% Agent + 20% YOLO)
-
-### 2. Event Differentiation
-
-```python
-# Accident vs Explosion
-if motion_spike > 450: → Explosion
-elif 200 < motion_spike < 450: → Accident
-else: → Normal traffic
-
-# Fire vs Explosion
-if duration < 1s + bright flash: → Explosion
-elif duration > 3s + flickering: → Fire
-```
-
-### 3. Temporal Validation
-- Requires 5 consecutive frames above threshold
-- Prevents single-frame false positives
-- Validates event duration patterns
-
-## 📈 Performance
-
-- **Processing Speed**: ~2-3 FPS (with frame skipping)
-- **Frame Skip**: Every 2nd frame processed
-- **Accuracy**: 221,660+ learned patterns from web sources
-- **False Positives**: Minimized with strict thresholds
-
-## 🔍 Event Detection Criteria
-
-### Accident 🚗
-- Motion spike: 200-450
-- Vehicles detected (YOLO confidence > 20%)
-- NO explosion colors (orange/yellow)
-- Linear collision pattern
-
-### Explosion 💥
-- Motion spike: 450+
-- Bright flash (brightness > 180)
-- Orange/yellow colors (> 5%)
-- Radial burst pattern
-
-### Fire 🔥
-- Orange flames (> 12%)
-- Sustained flickering (> 3s)
-- Upward motion
-- High brightness
-
-### Smoke 💨
-- Gray coverage (> 28%)
-- Slow drift pattern
-- Low brightness
-- Gradual increase
-
-### Fighting 👊
-- Multiple humans detected
-- Irregular motion (60-200)
-- Sustained activity (> 18 frames)
-- No vehicles dominant
-
-## 🛠️ Training Custom Model
-
-```bash
-# Prepare dataset in YOLO format
-# Train YOLOv11
-yolo train model=yolov11m.pt data=data.yaml epochs=130 imgsz=640
-```
-
-## 📝 Output Files
-
-- **Video**: `[filename]_detected.mp4`
-- **Feature Log**: `enhanced_features_log.csv`
-- **Learned Thresholds**: `models/learned_optimal_thresholds.json`
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit changes (`git commit -m 'Add AmazingFeature'`)
-4. Push to branch (`git push origin feature/AmazingFeature`)
-5. Open Pull Request
-
-## 📄 License
-
-This project is for educational and research purposes.
-
-## 👤 Author
-
-**Amruth**
-- GitHub: [@amruthssss](https://github.com/amruthssss)
-
-## 🙏 Acknowledgments
-
-- YOLOv11 by Ultralytics
-- Pattern learning from Google Images, Bing, Yahoo
-- OpenCV for computer vision
-- PyTorch for deep learning
-
-## 📞 Support
-
-For issues or questions, please open an issue on GitHub.
+<p align="center"><b>Local-first video and audio event monitoring with operator-reviewed alerts.</b></p>
 
 ---
 
-**⚠️ Note**: This system is designed for surveillance and safety monitoring. Ensure compliance with local privacy laws and regulations when deploying.
+## ◉ Mission
+
+Sentinel Vision combines a React operations dashboard, a Node.js account/configuration API, and a Python computer-vision service. It accepts camera streams and recordings, analyzes visual and audio signals locally, and gives operators evidence to review before acting.
+
+The project is a prototype. Its detections are advisory and need evaluation on representative clips before operational use.
+
+## ✦ What it does
+
+- **Connects video sources:** built-in camera, RTSP, IP camera, public YouTube stream, or local video file.
+- **Analyzes visual events:** fire, smoke, traffic accidents, and explosion-like visual cues.
+- **Analyzes audio events:** YAMNet classifies gunshot and explosion sounds when the operator enables microphone monitoring.
+- **Displays an alert queue:** confirmed incidents include camera/source, event, severity, confidence, repeat count, and a locally saved image or audio sample.
+- **Deduplicates and acknowledges incidents:** repeated detections update one incident for up to two minutes; higher severity escalates it. Operators can acknowledge alerts in the dashboard.
+- **Learns from explicit review:** correct, false-alarm, and missed-event labels are saved and adjust per-event thresholds. This changes decision thresholds; it does not retrain neural-network weights.
+- **Measures performance:** the Event Intelligence view reports reviewed-example precision/recall. An offline evaluator measures labeled video and audio clips.
+
+## ⌁ Alert policy
+
+| Signal | Confirmation | Escalation |
+| --- | --- | --- |
+| Fire, smoke, accident | Event-specific confidence threshold and 2 matching results in the last 3 inference samples | Critical requires 3 matching samples and at least 85% confidence |
+| Explosion in video | Same 2-of-3 confirmation; visual evidence is checked for the event | A strong fast path can mark critical at 95% only when at least 3 explosion cues agree; otherwise critical requires 3 samples |
+| Gunshot/explosion audio | Two consecutive audio windows above the configured YAMNet threshold | Score at or above 0.75 is critical; lower confirmed scores are high |
+| Repeated same event | One camera/event incident is updated during a 120-second window | The incident keeps the highest severity and refreshed evidence on escalation |
+
+Video evidence is saved as JPEG; audio evidence as WAV. Evidence stays under `data/alerts/` and is excluded from Git. Email, SMS, and push delivery are not connected yet; the current alerting path is local to the dashboard and API.
+
+## ▧ Architecture
+
+```mermaid
+flowchart LR
+  CAM[Camera / YouTube / video] --> CAP[Python capture worker]
+  CAP --> MJPEG[Latest-frame MJPEG feed]
+  CAP --> INF[Python inference worker]
+  INF --> VISION[YOLO + visual event heuristics]
+  MIC[Operator microphone] --> AUDIO[YAMNet audio classifier]
+  VISION --> POLICY[Temporal confirmation + thresholds]
+  AUDIO --> POLICY
+  POLICY --> ALERT[Deduplicated alert + local evidence]
+  ALERT --> SQLITE[(SQLite incident and review records)]
+  DASH[React dashboard] <--> API[Flask AI API]
+  API <--> NODE[Node / Express / MongoDB]
+  INF --> API
+  ALERT --> DASH
+```
+
+## ◈ Models
+
+| Capability | Current implementation | Notes |
+| --- | --- | --- |
+| General object context | YOLO26 Nano COCO checkpoint (`yolo26n.pt`) | Objects provide context; the COCO model is not an explosion classifier. |
+| Fire/smoke | Optional YOLO event checkpoint plus visual heuristics | Configured through `FIRE_SMOKE_MODEL_REPO` / `FIRE_SMOKE_MODEL_FILE`; availability depends on model download or local weights. |
+| Traffic accident | Optional YOLO accident checkpoint plus motion/vehicle context | Runs periodically to reduce inference load. |
+| Video explosion | Temporal visual heuristics | No verified dedicated lightweight explosion checkpoint is bundled. |
+| Gunshot/explosion audio | YAMNet ONNX and AudioSet class map | Microphone capture is opt-in. |
+
+The model cards describe their authors’ datasets and results; those are not performance measurements for this app. No labeled evaluation set is bundled by default.
+
+## ⌘ Run locally
+
+### Requirements
+
+- Windows 10/11 or a compatible desktop OS
+- Python 3.12+
+- Node.js 24+ and npm
+- MongoDB for account/configuration services
+- A webcam, supported network camera, or video/audio clips
+
+### Configure
+
+```powershell
+git clone https://github.com/amruthssss/multimodal-Surveillance-.git
+cd multimodal-Surveillance-
+Copy-Item .env.example .env
+```
+
+Edit `.env`: set a unique `JWT_SECRET`, a `MONGODB_URI`, and any local model/source settings. URL-encode special characters in MongoDB passwords. Never commit `.env`, model weights, video, or alert evidence.
+
+### Install
+
+```powershell
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+
+Push-Location surveillance-backend
+npm install
+Pop-Location
+Push-Location surveillance-frontend
+npm install
+Pop-Location
+```
+
+For NVIDIA GPU inference, install the PyTorch/CUDA wheel matching the machine from the [official PyTorch selector](https://pytorch.org/get-started/locally/) before installing the remaining Python requirements.
+
+### Start
+
+Run all services from the repository root:
+
+```powershell
+.\START.bat
+```
+
+Or start each in its own terminal:
+
+```powershell
+# Python camera and AI API
+.\venv\Scripts\Activate.ps1
+python app.py
+
+# Node account/configuration API
+Push-Location surveillance-backend
+npm start
+
+# React dashboard
+Push-Location surveillance-frontend
+npm run dev
+```
+
+Open **http://127.0.0.1:4300**. The Python API uses port **5000**; the Node API uses **5001**. Configure a source in the dashboard to start video inference. Microphone monitoring is separately opt-in.
+
+## ◎ Review detections and measure accuracy
+
+The dashboard’s Event Intelligence page lets an operator label a detected event as correct or a false alarm, or label a normal sample as a missed event. Reviewed labels are stored in SQLite and appear in the evaluation cards. Threshold updates are stored in the ignored local file `data/detection_feedback.json`.
+
+For a separate clip-level evaluation set, copy `evaluation/manifest.example.csv` to `evaluation/manifest.csv`, add labeled local media paths, then run:
+
+```powershell
+python scripts/evaluate_labeled_videos.py --manifest evaluation/manifest.csv --output evaluation/report.json
+```
+
+The manifest supports `normal`, `explosion`, `fire`, `smoke`, `accident`, and `gunshot`. Use `media_type=video` for visual events and `media_type=audio` for gunshot/audio-explosion clips. Include normal clips and keep a final evaluation set separate from clips used to tune thresholds. See [evaluation/README.md](evaluation/README.md).
+
+## ⇄ API reference
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /health` | Python service health |
+| `GET /api/status` | Camera and model state |
+| `GET /api/detections/recent` | Latest per-camera detections |
+| `GET /api/alerts` | Recent persisted incidents |
+| `POST /api/alerts/{id}/acknowledge` | Acknowledge an incident |
+| `GET /api/alerts/{id}/evidence` | View its local JPEG/WAV evidence |
+| `POST /api/detections/feedback` | Persist an operator ground-truth label |
+| `GET /api/detections/reviews` | Retrieve reviewed examples |
+| `GET /api/detections/evaluation` | Calculate per-event precision, recall, and F1 |
+| `POST /api/camera/configure` | Configure a video source |
+| `POST /api/audio-analysis` | Analyze an opt-in microphone window |
+
+## ⚙ Configuration
+
+| Variable | Purpose |
+| --- | --- |
+| `MONGODB_URI`, `JWT_SECRET` | Node API database and authentication |
+| `FLASK_PORT`, `PORT` | Python and Node service ports |
+| `VITE_API_URL`, `VITE_AI_URL` | Frontend API addresses |
+| `VIDEO_SOURCE`, `FRAME_INTERVAL` | Camera device and inference sampling |
+| `VIDEO_MAX_WIDTH`, `VIDEO_JPEG_QUALITY` | Stream bandwidth/quality balance |
+| `EVENT_MODEL_INTERVAL` | Specialized visual model sampling interval |
+| `FIRE_SMOKE_MODEL_REPO`, `TRAFFIC_ACCIDENT_MODEL_REPO`, `YAMNET_MODEL_REPO` | Optional Hugging Face model sources |
+| `FIRE_SMOKE_CONFIDENCE`, `ACCIDENT_CONFIDENCE` | Event-model confidence cutoffs |
+| `AUDIO_GUNSHOT_THRESHOLD`, `AUDIO_EXPLOSION_THRESHOLD` | Audio classifier cutoffs |
+| `DATABASE_URL` | SQLite event/review database or compatible SQLAlchemy URL |
+
+See [.env.example](.env.example) for the complete local configuration template.
+
+## ⛨ Privacy and limitations
+
+- Services bind to localhost by default. Do not expose them to the public internet without authentication, access controls, and a reviewed deployment design.
+- Video and audio evidence remain on the machine running the Python service; the alert API serves evidence only on that local service.
+- Account tokens are stored by the browser application. Review the authentication and deployment model before using real accounts.
+- A few reviewed events are not enough to establish accuracy. Track false positives and misses per event on representative day/night, indoor/outdoor, and camera conditions.
+- This prototype is not a substitute for human judgment or certified life-safety systems. Do not rely on it as the only means of detecting emergencies.
+
+## License
+
+Check the licenses of the project and each downloaded model before redistribution or commercial use. Model weights are not included in this repository.

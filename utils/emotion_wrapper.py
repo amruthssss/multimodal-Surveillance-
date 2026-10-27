@@ -24,6 +24,7 @@ class EmotionWrapper:
         self.model = None
         self.error = None
         self.model_path = path
+        self.face_detector = None
         
         if load_model:
             # Try multiple loading strategies
@@ -35,6 +36,8 @@ class EmotionWrapper:
             )
             
             if success:
+                cascade_path = os.path.join(cv2.data.haarcascades, 'haarcascade_frontalface_default.xml')
+                self.face_detector = cv2.CascadeClassifier(cascade_path)
                 print(f"Successfully loaded emotion model from {path}")
             else:
                 print(f"All loading attempts failed for emotion model: {self.error}")
@@ -106,6 +109,25 @@ class EmotionWrapper:
         try:
             preds = self.model.predict(img, verbose=0)[0]
             idx = int(np.argmax(preds))
+            if idx >= len(self.labels):
+                return ('unavailable', 0.0)
             return self.labels[idx], float(preds[idx])
         except Exception:
-            return ('Neutral', 0.0)
+            return ('unavailable', 0.0)
+
+    def analyze(self, frame):
+        """Detect the largest face and return an emotion only when weights exist."""
+        if self.model is None or self.face_detector is None or frame is None:
+            return None
+        try:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            faces = self.face_detector.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
+            if len(faces) == 0:
+                return None
+            x, y, width, height = max(faces, key=lambda box: box[2] * box[3])
+            label, confidence = self.predict_from_face(frame[y:y + height, x:x + width])
+            if label == 'unavailable':
+                return None
+            return {'dominant_emotion': label, 'confidence': confidence}
+        except Exception:
+            return None

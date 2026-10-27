@@ -1,46 +1,47 @@
 # YOLO Model Class Mapping
-# Based on your Kaggle training results
+# Class names expected by optional custom YOLO weights. The checkpoint and
+# verifiable evaluation report are not included with this repository.
 
 # Class ID to Event Name mapping
 # Note: Model internally uses class_0, class_1, etc.
 # This maps them to meaningful event names
 CLASS_MAPPING = {
-    0: 'explosion',      # class_0 → 99.5% mAP - Excellent!
-    1: 'fighting',       # class_1 → 49.4% mAP - Needs more data  
-    2: 'fire',           # class_2 → 89.5% mAP - Excellent!
-    3: 'vehicle_accident' # class_3 → 61.8% mAP - Good
+    0: 'explosion',
+    1: 'fire',
+    2: 'smoke',
+    3: 'vehicle_accident',
 }
 
 # Reverse mapping (Event name to Class ID)
 EVENT_TO_CLASS = {
     'explosion': 0,
-    'fighting': 1,
-    'fire': 2,
-    'vehicle_accident': 3
+    'fire': 1,
+    'smoke': 2,
+    'vehicle_accident': 3,
 }
 
 # Display names (user-friendly)
 DISPLAY_NAMES = {
     0: 'Explosion',
-    1: 'Fighting',
-    2: 'Fire',
+    1: 'Fire',
+    2: 'Smoke',
     3: 'Vehicle Accident'
 }
 
 # Risk levels for each event
 RISK_LEVELS = {
     'explosion': 'CRITICAL',
-    'fighting': 'HIGH',
+    'smoke': 'HIGH',
     'fire': 'CRITICAL',
     'vehicle_accident': 'HIGH'
 }
 
-# Confidence thresholds (based on training performance)
+# Provisional thresholds; calibrate against a labeled validation set.
 CONFIDENCE_THRESHOLDS = {
-    'explosion': 0.25,      # High accuracy, can use lower threshold
-    'fighting': 0.40,       # Lower accuracy, use higher threshold  
-    'fire': 0.30,           # High accuracy
-    'vehicle_accident': 0.35 # Good accuracy
+    'explosion': 0.25,
+    'fire': 0.30,
+    'smoke': 0.30,
+    'vehicle_accident': 0.35
 }
 
 # Function to get event name from class ID

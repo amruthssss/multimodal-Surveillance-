@@ -36,12 +36,18 @@ class PureAgentDetector:
         
         # Load knowledge
         print(f"📚 Loading knowledge: {knowledge_path}")
-        with open(knowledge_path, 'rb') as f:
-            knowledge = pickle.load(f)
-        
-        self.patterns = knowledge['patterns']
-        self.characteristics = knowledge['characteristics']
-        self.total_patterns = knowledge['total_learned']
+        self.available = False
+        try:
+            with open(knowledge_path, 'rb') as f:
+                knowledge = pickle.load(f)
+            self.available = bool(knowledge.get('patterns'))
+        except Exception as error:
+            print(f"⚠️ Pattern knowledge unavailable: {error}")
+            knowledge = {}
+
+        self.patterns = knowledge.get('patterns', {})
+        self.characteristics = knowledge.get('characteristics', {})
+        self.total_patterns = knowledge.get('total_learned', 0)
         
         print(f"✅ Knowledge loaded:")
         print(f"   📊 Total patterns: {self.total_patterns:,}")
@@ -67,7 +73,7 @@ class PureAgentDetector:
             'normal': 'Normal'
         }
         
-        print(f"✅ Pure Agent Ready")
+        print("✅ Pure Agent Ready" if self.available else "⚠️ Pure Agent unavailable until pattern weights are supplied")
         print("="*70 + "\n")
     
     def extract_features(self, frame: np.ndarray) -> Dict:
@@ -193,6 +199,17 @@ class PureAgentDetector:
         """
         import time
         start_time = time.time()
+
+        if not self.patterns:
+            return PureAgentResult(
+                event_type='unavailable',
+                confidence=0.0,
+                top_matches=[],
+                pattern_count=0,
+                detection_time_ms=(time.time() - start_time) * 1000,
+                should_alert=False,
+                risk_level='LOW',
+            )
         
         # Extract features from frame
         frame_features = self.extract_features(frame)
@@ -201,9 +218,9 @@ class PureAgentDetector:
         event_scores = {}
         
         for event_type, patterns in self.patterns.items():
-            # Sample patterns (check top_k random patterns for speed)
+            # Sample evenly spaced patterns for deterministic inference.
             sample_size = min(top_k, len(patterns))
-            sampled_patterns = np.random.choice(len(patterns), sample_size, replace=False)
+            sampled_patterns = np.linspace(0, len(patterns) - 1, sample_size, dtype=int)
             
             similarities = []
             for idx in sampled_patterns:

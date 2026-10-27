@@ -1,14 +1,8 @@
-name: yolov11-train
+name: multimodal-surveillance
 channels:
-  - pytorch
-  - nvidia
   - conda-forge
-  - defaults
 dependencies:
-  - python=3.10
+  - python=3.12
   - pip
   - pip:
-    - ultralytics
-    - tqdm
-    - pandas
-    - matplotlib
+    - -r requirements.txt

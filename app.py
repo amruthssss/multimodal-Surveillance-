@@ -4,55 +4,73 @@ This is a simplified scaffold – not production ready.
 """
 from __future__ import annotations
 import io
+import json
+import os
+import base64
+import shutil
 import threading
 import time
+from collections import OrderedDict
+from pathlib import Path
+from urllib.parse import urlparse
 from datetime import datetime
 from typing import Generator
+from uuid import uuid4
 import numpy as np
 
 import cv2
-from flask import Flask, Response, render_template, request, redirect, url_for, session, flash, jsonify, send_from_directory
+from flask import Flask, Response, request, redirect, session, flash, jsonify, send_from_directory
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from config.config import Config
 from utils import db as db_utils
-from utils.yolo_wrapper import YOLOWrapper  # placeholder (will handle missing model gracefully)
-from utils.fusion_inference import fuse_modalities  # placeholder
-# from utils.smart_fusion_engine import SmartFusionEngine  # NEW: Smart learning fusion (DISABLED - missing svm_wrapper)
-
-# NEW: Enhanced Ultra Hybrid System
+from utils.feedback_learner import FeedbackThresholdLearner
+from utils.detection_policy import TemporalDetectionPolicy
+# The same visual agent handles live-stream and single-frame inference.
 from enhanced_final_ultra_system import EnhancedUltraSystem
-
-# Note: Old agent imports removed - using Enhanced Ultra Hybrid System
 
 
 app = Flask(__name__, static_folder='new_frontend/build', static_url_path='/')
+app.config['MAX_CONTENT_LENGTH'] = 8 * 1024 * 1024
 app.config['SECRET_KEY'] = Config.SECRET_KEY
+FRONTEND_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv('FRONTEND_URL', 'http://localhost:3000').split(',')
+    if origin.strip()
+]
 
 # Enable CORS for frontend integration with credentials support
-CORS(app, 
-     origins=['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002'],
+CORS(app,
+     origins=FRONTEND_ORIGINS,
      supports_credentials=True,
      allow_headers=['Content-Type', 'Authorization'],
      methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
 
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(
+    app,
+    cors_allowed_origins=FRONTEND_ORIGINS,
+    async_mode='threading',
+)
 
 db_utils.init_db()  # ensure tables
 
 # In-memory user cache (replace with real User model / SQLAlchemy later)
 _USERS = {}
 
-# Model instances (lazy)
-yolo_model = YOLOWrapper(auto_download=True)
-
 # AI Detection System Instances
 emotion_model = None
 action_model = None
-# smart_fusion = None  # Smart Fusion Engine (DISABLED - missing dependencies)
-enhanced_system = None  # NEW: Enhanced Ultra Hybrid System (80% Agent + 20% YOLO)
+enhanced_system = None
+ai_init_lock = threading.Lock()
+inference_lock = threading.Lock()
+detection_results_lock = threading.Lock()
+audio_event_streaks = {'gunshot': 0, 'explosion': 0}
+recent_detection_snapshots = OrderedDict()
+alert_record_lock = threading.Lock()
+feedback_learner = FeedbackThresholdLearner(os.path.join(Config.ROOT_DIR, 'data', 'detection_feedback.json'))
+detection_policy = TemporalDetectionPolicy(feedback_learner)
 
 def initialize_ai_systems():
     """Initialize all AI detection systems"""
@@ -67,20 +85,14 @@ def initialize_ai_systems():
         # PRIORITY 1: Enhanced Ultra Hybrid System
         # ==========================================
         print("🚀 Loading Enhanced Ultra Hybrid System...")
-        print("   Architecture: 80% Agent + 20% YOLO")
-        print("   Patterns: 221,660 learned patterns")
-        print("   Objects: Vehicle + Person detection")
-        print("   Features: Motion spike, Peak detection, Temporal validation\n")
+        print("   Architecture: visual heuristics with optional YOLO models")
+        print("   Custom event weights: optional (not included in the repository)")
+        print("   Objects: available COCO model classes\n")
         
-        enhanced_system = EnhancedUltraSystem(
-            model_path='runs/detect/train/weights/best.pt',
-            use_audio=False  # Disable audio for web streaming
-        )
+        enhanced_system = EnhancedUltraSystem(use_audio=False)
         
         print("\n✅ Enhanced Ultra Hybrid System Active")
-        print(f"   Mode: 80% Agent (learned patterns) + 20% YOLO (objects)")
-        print(f"   Speed: ~15-20 FPS (optimized)")
-        print(f"   Accuracy: 90%+ (pattern-informed)")
+        print("   Mode: heuristic event analysis plus available object detection")
         
         # ==========================================
         # PRIORITY 2: Smart Fusion Engine (Learning Mode) - DISABLED
@@ -108,15 +120,8 @@ def initialize_ai_systems():
         print("✅ AI SYSTEM READY")
         print("="*70)
         print("\n📊 SYSTEM ARCHITECTURE:")
-        print("   🎯 Enhanced System: Accident/Fire/Explosion detection (221K patterns)")
-        print("   � YOLO Objects: Vehicle + Person detection")
-        print("   📚 Smart Fusion: Emotion + Action (learning mode)")
-        print("   🚀 Result: Multi-layer intelligent detection")
-        print("\n💡 BENEFITS:")
-        print("   ✅ Accurate: 90%+ with pattern-informed detection")
-        print("   ✅ Smart: 80% Agent + 20% YOLO fusion")
-        print("   ✅ Fast: Optimized frame processing")
-        print("   ✅ Complete: Events + Emotions + Actions")
+        print("   🎯 Custom event weights are optional and must be supplied locally")
+        print("   🚀 Object detection depends on the available YOLO model")
         print("="*70 + "\n")
         
     except Exception as e:
@@ -124,11 +129,71 @@ def initialize_ai_systems():
         import traceback
         traceback.print_exc()
 
+
+def ensure_ai_system():
+    """Initialize the existing visual agent once and return it."""
+    with ai_init_lock:
+        if enhanced_system is None:
+            initialize_ai_systems()
+        if enhanced_system is None:
+            raise RuntimeError('The visual analysis agent could not be initialized')
+        return enhanced_system
+
+
+def decode_frame_payload(payload):
+    """Decode a base64 image/data URL into an OpenCV BGR frame."""
+    if not isinstance(payload, str) or not payload.strip():
+        raise ValueError('An image payload is required')
+    encoded = payload.split(',', 1)[1] if ',' in payload else payload
+    try:
+        image_bytes = base64.b64decode(encoded, validate=True)
+    except (ValueError, base64.binascii.Error) as error:
+        raise ValueError('Image payload must be valid base64') from error
+    frame = cv2.imdecode(np.frombuffer(image_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
+    if frame is None:
+        raise ValueError('Image payload is not a decodable image')
+    return frame
+
+
+def analyze_frame_with_agent(frame, camera_id, frame_num=0):
+    """Run the shared visual agent and store its normalized result."""
+    system = ensure_ai_system()
+    with inference_lock:
+        result = system.process_frame_for_api(frame, frame_num)
+    if result.get('event') == 'error':
+        raise RuntimeError(result.get('error', 'Frame analysis failed'))
+
+    result, final_result = detection_policy.apply(result, camera_id, frame_num)
+    timestamp = time.time()
+    with detection_results_lock:
+        snapshot = {
+            'timestamp': timestamp,
+            'event_id': f'{camera_id}:{int(timestamp * 1000)}',
+            'camera_id': str(camera_id),
+            'results': {'fusion_result': final_result, 'agent_result': result},
+        }
+        detection_results[str(camera_id)] = snapshot
+        recent_detection_snapshots[snapshot['event_id']] = snapshot
+        recent_detection_snapshots.move_to_end(snapshot['event_id'])
+        while len(recent_detection_snapshots) > 1000:
+            recent_detection_snapshots.popitem(last=False)
+    return result, final_result, timestamp
+
 # Camera capture thread control
 capture_lock = threading.Lock()
 video_capture = None
 last_frame = None
+latest_camera_frame = None
+camera_frame_sequence = 0
+stream_condition = threading.Condition()
+stream_stop_event = threading.Event()
+capture_worker_thread = None
+inference_worker_thread = None
+stream_state = 'idle'
+stream_error = None
+stream_fps = 0.0
 detection_results = {}  # Store latest detection results
+app_started_monotonic = time.monotonic()
 camera_configured = False  # Track if camera has been configured
 camera_config = {
     'source': None,  # None until user configures (was 'builtin')
@@ -147,235 +212,311 @@ def get_video_capture():
         print("⏸️  Camera not configured yet. Waiting for user selection...")
         return None
     
-    if video_capture is None:
-        # Check camera configuration
-        if camera_config['source'] == 'rtsp' and camera_config['rtsp_url']:
-            src = camera_config['rtsp_url']
-            print(f"📹 Opening RTSP stream: {src}")
-        elif camera_config['source'] == 'ip' and camera_config['ip_url']:
-            src = camera_config['ip_url']
-            print(f"📹 Opening IP camera: {src}")
-        elif camera_config['source'] == 'youtube' and camera_config['youtube_url']:
-            # Use streamlink (FAST) or yt-dlp (fallback) to get direct video URL
-            try:
-                youtube_url = camera_config['youtube_url']
-                print(f"📺 Extracting YouTube video URL (fast method)...")
-                
-                # Try streamlink first (2-5 seconds - MUCH FASTER!)
-                try:
-                    import streamlink
-                    
-                    streams = streamlink.streams(youtube_url)
-                    
-                    # Get 720p or best quality
-                    if '720p' in streams:
-                        src = streams['720p'].url
-                        print(f"✅ Got 720p stream via streamlink (~3 seconds)")
-                    elif 'best' in streams:
-                        src = streams['best'].url
-                        print(f"✅ Got best stream via streamlink (~3 seconds)")
-                    else:
-                        src = list(streams.values())[0].url
-                        print(f"✅ Got stream via streamlink (~3 seconds)")
-                    
-                except Exception as streamlink_error:
-                    error_msg = str(streamlink_error)
-                    print(f"⚠️ Streamlink failed: {error_msg}")
-                    
-                    # Check if it's a protected video error - skip directly to yt-dlp
-                    if "does not support protected videos" in error_msg or "Try yt-dlp instead" in error_msg:
-                        print(f"🔄 Protected video detected, using yt-dlp directly...")
-                    else:
-                        print(f"🔄 Trying yt-dlp as fallback (slower)...")
-                    
-                    # Fallback to yt-dlp (10-20 seconds)
-                    import subprocess
-                    result = subprocess.run(
-                        [
-                            'yt-dlp',
-                            '--no-playlist',           # Don't download playlists
-                            '--no-warnings',           # Suppress warnings
-                            '--quiet',                 # Quiet mode
-                            '-f', 'best[height<=720]', # Limit to 720p for speed
-                            '--get-url',               # Just get URL
-                            youtube_url
-                        ],
-                        capture_output=True,
-                        text=True,
-                        timeout=30
-                    )
-                    
-                    if result.returncode == 0:
-                        src = result.stdout.strip().split('\n')[0]
-                        print(f"✅ YouTube URL extracted via yt-dlp (~10-15 seconds)")
-                    else:
-                        print(f"❌ yt-dlp also failed: {result.stderr}")
-                        print(f"💡 Tip: Make sure video is public and not age-restricted")
-                        src = 0  # Fallback to built-in camera
-                        
-            except subprocess.TimeoutExpired:
-                print("⚠️ YouTube URL extraction timed out (>30s). Try a different video.")
-                src = 0
-            except Exception as e:
-                print(f"⚠️ YouTube URL extraction failed: {e}")
-                src = 0
-        elif camera_config['source'] == 'video' and camera_config['video_file']:
-            # Video file path
-            src = camera_config['video_file']
-            print(f"🎬 Opening video file: {src}")
-        else:
-            # Default to builtin camera
-            src = 0
-            try:
-                src = int(Config.VIDEO_SOURCE)
-            except ValueError:
-                src = Config.VIDEO_SOURCE
-            print(f"📹 Opening built-in camera: {src}")
-        
-        video_capture = cv2.VideoCapture(src)
-        
-        # Set camera properties for better performance
-        if isinstance(src, int):  # Only for local cameras
+    if video_capture is not None:
+        return video_capture
+
+    source = camera_config['source']
+    if source == 'builtin':
+        try:
+            device_index = int(Config.VIDEO_SOURCE)
+        except (TypeError, ValueError):
+            device_index = Config.VIDEO_SOURCE
+        print(f"📹 Opening built-in camera: {device_index}")
+        backends = [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY] if isinstance(device_index, int) else [cv2.CAP_ANY]
+        for backend in backends:
+            candidate = cv2.VideoCapture(device_index, backend)
+            if candidate.isOpened():
+                video_capture = candidate
+                break
+            candidate.release()
+        if video_capture is not None:
             video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
             video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
             video_capture.set(cv2.CAP_PROP_FPS, 30)
-    
+            video_capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    elif source == 'rtsp':
+        stream_url = camera_config['rtsp_url']
+        print("📹 Opening RTSP stream")
+        video_capture = _open_network_capture(stream_url)
+    elif source == 'ip':
+        stream_url = camera_config['ip_url']
+        print("📹 Opening IP camera stream")
+        video_capture = _open_network_capture(stream_url)
+    elif source == 'youtube':
+        stream_url = _resolve_youtube_stream(camera_config['youtube_url'])
+        print("📺 Opening extracted YouTube stream")
+        video_capture = _open_network_capture(stream_url)
+    elif source == 'video':
+        video_capture = cv2.VideoCapture(camera_config['video_file'])
+
+    if video_capture is not None and not video_capture.isOpened():
+        video_capture.release()
+        video_capture = None
     return video_capture
+
+
+def _resolve_youtube_stream(page_url):
+    """Resolve a public YouTube video/live URL to a progressive stream URL."""
+    try:
+        import truststore
+        truststore.inject_into_ssl()
+    except ImportError:
+        pass
+    try:
+        from yt_dlp import YoutubeDL
+    except ImportError as error:
+        raise RuntimeError('YouTube support needs yt-dlp. Install requirements.txt and retry.') from error
+
+    options = {
+        'format': 'best[height<=720]/best',
+        'noplaylist': True,
+        'quiet': True,
+        'no_warnings': True,
+        'socket_timeout': 15,
+        'extractor_retries': 1,
+    }
+    node_path = shutil.which('node')
+    if node_path:
+        options['js_runtimes'] = {'node': {'path': node_path}}
+    try:
+        with YoutubeDL(options) as downloader:
+            info = downloader.extract_info(page_url, download=False)
+    except Exception as error:
+        raise RuntimeError(f'Could not resolve that YouTube link: {error}') from error
+    stream_url = info.get('url') if isinstance(info, dict) else None
+    if not stream_url:
+        raise RuntimeError('YouTube did not provide a compatible video stream for this link.')
+    return stream_url
+
+
+def _open_network_capture(stream_url):
+    """Open an RTSP/HTTP stream with bounded open/read timeouts when supported."""
+    params = [
+        cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 10_000,
+        cv2.CAP_PROP_READ_TIMEOUT_MSEC, 10_000,
+    ]
+    try:
+        capture = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG, params)
+    except (TypeError, cv2.error):
+        capture = cv2.VideoCapture(stream_url)
+    if not capture.isOpened():
+        capture.release()
+        return None
+    return capture
 
 
 def reset_video_capture():
     """Reset video capture to apply new configuration"""
-    global video_capture, camera_configured
-    if video_capture is not None:
-        video_capture.release()
-        video_capture = None
+    global video_capture, camera_configured, stream_stop_event
+    global capture_worker_thread, inference_worker_thread, latest_camera_frame
+    global last_frame, stream_state, stream_error, camera_frame_sequence, stream_fps
+    detection_policy.reset()
+    stream_stop_event.set()
+    with stream_condition:
+        stream_condition.notify_all()
+    cap = video_capture
+    video_capture = None
+    if cap is not None:
+        try:
+            cap.release()
+        except Exception:
+            pass
+    for worker in (capture_worker_thread, inference_worker_thread):
+        if worker and worker.is_alive() and worker is not threading.current_thread():
+            worker.join(timeout=1.5)
+    capture_worker_thread = None
+    inference_worker_thread = None
+    with stream_condition:
+        latest_camera_frame = None
+        last_frame = None
+        camera_frame_sequence = 0
+        stream_state = 'idle'
+        stream_error = None
+        stream_fps = 0.0
+        stream_condition.notify_all()
     camera_configured = False
     print("🔄 Video capture reset")
 
 
-def generate_frames() -> Generator[bytes, None, None]:
-    global last_frame
-    
-    # Check if camera is configured
-    if not camera_configured:
-        # Generate placeholder image
-        placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
-        cv2.putText(placeholder, "Camera Not Configured", (120, 200), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 255), 2)
-        cv2.putText(placeholder, "Click Settings to Configure", (110, 260), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
-        cv2.putText(placeholder, "Choose: Built-in | RTSP | IP | YouTube", (60, 310), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 1)
-        
-        ret, buffer = cv2.imencode('.jpg', placeholder)
-        jpg_bytes = buffer.tobytes()
-        
-        while not camera_configured:
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + jpg_bytes + b'\r\n')
-            time.sleep(0.5)
-    
-    cap = get_video_capture()
-    if cap is None:
+def start_stream_workers():
+    """Capture/encode continuously; run expensive AI on a separate drop-old queue."""
+    global stream_stop_event, capture_worker_thread, inference_worker_thread, stream_state
+    if capture_worker_thread and capture_worker_thread.is_alive():
         return
-        
-    frame_index = 0
-    while True:
-        success, frame = cap.read()
-        if not success:
-            time.sleep(0.1)
+    stream_stop_event = threading.Event()
+    stop_event = stream_stop_event
+    stream_state = 'connecting'
+    capture_worker_thread = threading.Thread(
+        target=_capture_latest_frames, args=(stop_event,), name='camera-capture', daemon=True
+    )
+    inference_worker_thread = threading.Thread(
+        target=_infer_latest_frames, args=(stop_event,), name='camera-inference', daemon=True
+    )
+    capture_worker_thread.start()
+    inference_worker_thread.start()
+
+
+def _capture_latest_frames(stop_event):
+    """Keep the newest JPEG fresh without waiting for inference or browser clients."""
+    global latest_camera_frame, camera_frame_sequence, last_frame
+    global stream_state, stream_error, stream_fps, video_capture
+    failures = 0
+    blank_frames = 0
+    fps_started = time.monotonic()
+    fps_frames = 0
+    while not stop_event.is_set() and camera_configured:
+        try:
+            cap = get_video_capture()
+        except Exception as error:
+            failures += 1
+            stream_state = 'reconnecting'
+            stream_error = str(error)
+            stop_event.wait(min(8.0, 0.5 * (2 ** min(failures, 4))))
+            continue
+        if cap is None:
+            failures += 1
+            stream_state = 'reconnecting'
+            stream_error = stream_error or 'Unable to open the configured video source'
+            if camera_config.get('source') == 'video':
+                stream_state = 'ended'
+                break
+            stop_event.wait(min(8.0, 0.5 * (2 ** min(failures, 4))))
             continue
 
-        frame_index += 1
-        # Throttle processing
-        if frame_index % Config.FRAME_INTERVAL == 0:
-            # Run lightweight detection stub
-            detections = yolo_model.detect(frame)
-            
-            # Try to run ENHANCED ULTRA HYBRID SYSTEM first
-            if enhanced_system:
-                try:
-                    # Get enhanced analysis (80% Agent + 20% YOLO)
-                    # Process frame through enhanced system
-                    enhanced_result = enhanced_system.process_frame_for_api(frame, frame_index)
-                    
-                    # Prepare detection data for WebSocket emission
-                    detection_data = {
-                        'timestamp': time.time(),
-                        'frame': frame_index,
-                        'event': enhanced_result.get('event', 'normal'),
-                        'confidence': enhanced_result.get('confidence', 0.0),
-                        'risk': enhanced_result.get('risk_level', 'LOW'),
-                        'reasoning': enhanced_result.get('reasoning', ''),
-                        'objects': enhanced_result.get('objects', {}),
-                        'motion_spike': enhanced_result.get('motion_spike', 0.0),
-                        'vehicles': enhanced_result.get('vehicles', {}),
-                        'people': enhanced_result.get('people', {})
-                    }
-                    
-                    # Emit to all connected clients
-                    socketio.emit('detection_update', detection_data)
-                    
-                    # Store in detection_results
-                    detection_results['camera_0'] = {
-                        'timestamp': time.time(),
-                        'results': {
-                            'enhanced_result': detection_data
-                        }
-                    }
-                except Exception as e:
-                    print(f"⚠️ Enhanced system analysis failed: {e}")
-                    import traceback
-                    traceback.print_exc()
-            
-            # Fallback: Try to run fusion inference if hybrid agent is available
-            elif hybrid_agent:
-                try:
-                    # Get hybrid analysis (75% AI + 25% models)
-                    hybrid_result = hybrid_agent.analyze_frame(frame)
-                    
-                    # Prepare detection data for WebSocket emission
-                    detection_data = {
-                        'timestamp': time.time(),
-                        'label': hybrid_result.get('primary_threat', 'normal'),
-                        'risk': hybrid_result.get('risk_level', 'LOW'),
-                        'confidence': hybrid_result.get('confidence', 0.5),
-                        'objects': detections.get('objects', []),
-                        'visual_analysis': hybrid_result.get('visual_analysis', {}),
-                        'model_predictions': hybrid_result.get('model_predictions', {})
-                    }
-                    
-                    # Emit to all connected clients
-                    socketio.emit('detection_update', detection_data)
-                    
-                    # Store in detection_results
-                    detection_results['camera_0'] = {
-                        'timestamp': time.time(),
-                        'results': {
-                            'fusion_result': detection_data
-                        }
-                    }
-                except Exception as e:
-                    print(f"⚠️ Hybrid analysis failed: {e}")
-            
-            # Emit basic detection summary to clients
-            socketio.emit('inference', {
-                'objects': detections.get('objects', []),
-                'timestamp': time.time(),
-            })
-        # Encode frame for HTTP MJPEG
-        ret, buffer = cv2.imencode('.jpg', frame)
-        if not ret:
+        ok, frame = cap.read()
+        if not ok or frame is None:
+            failures += 1
+            stream_state = 'reconnecting'
+            stream_error = 'No frames received; reconnecting'
+            with capture_lock:
+                if video_capture is cap:
+                    video_capture = None
+            try:
+                cap.release()
+            except Exception:
+                pass
+            if camera_config.get('source') == 'video':
+                stream_state = 'ended'
+                break
+            stop_event.wait(min(8.0, 0.5 * (2 ** min(failures, 4))))
             continue
-        jpg_bytes = buffer.tobytes()
-        last_frame = jpg_bytes
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + jpg_bytes + b'\r\n')
+
+        failures = 0
+        # A privacy shutter or disabled camera can still yield successful reads,
+        # often as a stream of all-zero frames. Do not report that as a live feed.
+        if float(frame.mean()) < 1.0 and float(frame.std()) < 1.0:
+            blank_frames += 1
+        else:
+            blank_frames = 0
+        if blank_frames >= 8:
+            stream_state = 'blank'
+            stream_error = 'Camera is returning a black image. Check its privacy shutter, Windows camera access, or selected device.'
+        else:
+            stream_state = 'online'
+            stream_error = None
+        fps_frames += 1
+        elapsed = time.monotonic() - fps_started
+        if elapsed >= 2.0:
+            stream_fps = fps_frames / elapsed
+            fps_frames = 0
+            fps_started = time.monotonic()
+
+        height, width = frame.shape[:2]
+        max_width = max(320, int(os.getenv('VIDEO_MAX_WIDTH', '960')))
+        if width > max_width:
+            scaled_height = int(height * max_width / width)
+            frame = cv2.resize(frame, (max_width, scaled_height), interpolation=cv2.INTER_AREA)
+        ok, encoded = cv2.imencode(
+            '.jpg', frame,
+            [int(cv2.IMWRITE_JPEG_QUALITY), max(45, min(90, int(os.getenv('VIDEO_JPEG_QUALITY', '78'))))],
+        )
+        if not ok:
+            continue
+        with stream_condition:
+            latest_camera_frame = frame
+            camera_frame_sequence += 1
+            last_frame = encoded.tobytes()
+            stream_condition.notify_all()
+
+
+def _infer_latest_frames(stop_event):
+    """Process only fresh frames and skip backlog when a model is slower than video."""
+    global stream_state, stream_error
+    last_sequence = 0
+    interval = max(1, int(Config.FRAME_INTERVAL))
+    while not stop_event.is_set() and camera_configured:
+        with stream_condition:
+            stream_condition.wait_for(
+                lambda: stop_event.is_set() or camera_frame_sequence > last_sequence,
+                timeout=1.0,
+            )
+            if stop_event.is_set():
+                break
+            if camera_frame_sequence <= last_sequence or latest_camera_frame is None:
+                continue
+            sequence = camera_frame_sequence
+            frame = latest_camera_frame.copy()
+            last_sequence = sequence
+        if sequence % interval:
+            continue
+        try:
+            result, final_result, timestamp = analyze_frame_with_agent(frame, 'camera_0', sequence)
+            if final_result['should_alert']:
+                record_alert_event(
+                    final_result['label'], final_result['risk'], final_result['confidence'],
+                    'camera_0', source='video', reasoning=final_result.get('reasoning'),
+                    frame=frame, timestamp=timestamp,
+                )
+            detection_data = {
+                **result,
+                'timestamp': timestamp,
+                'frame': sequence,
+                'risk': final_result['risk'],
+                'objects': result.get('objects', {}),
+                'vehicles': result.get('vehicles', {}),
+                'people': result.get('people', {}),
+            }
+            socketio.emit('detection_update', detection_data)
+            socketio.emit('inference', {
+                'event': final_result['label'],
+                'confidence': final_result['confidence'],
+                'risk': final_result['risk'],
+                'objects': detection_data['objects'],
+                'timestamp': timestamp,
+            })
+        except Exception as error:
+            stream_error = f'Inference error: {error}'
+            print(f"⚠️ Visual agent analysis failed: {error}")
+
+
+def generate_frames() -> Generator[bytes, None, None]:
+    sequence_sent = 0
+    while camera_configured:
+        with stream_condition:
+            stream_condition.wait_for(
+                lambda: not camera_configured or camera_frame_sequence > sequence_sent or stream_state == 'ended',
+                timeout=5.0,
+            )
+            if not camera_configured:
+                break
+            if camera_frame_sequence <= sequence_sent:
+                continue
+            sequence_sent = camera_frame_sequence
+            payload = last_frame
+        if payload:
+            yield b'--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ' + str(len(payload)).encode() + b'\r\n\r\n' + payload + b'\r\n'
 
 
 @app.route('/')
 def index():
-    return app.send_static_file('index.html')
+    frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:3000').split(',', 1)[0].strip()
+    return redirect(frontend_url.rstrip('/') + '/')
+
+
+@app.route('/login')
+def login_page():
+    frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:3000').split(',', 1)[0].strip()
+    return redirect(frontend_url.rstrip('/') + '/login')
 
 
 @app.route('/api/auth/register', methods=['POST'])
@@ -405,13 +546,13 @@ def api_register():
         'created_at': time.time()
     }
     
-    # In production, send real email/SMS via Node.js service
+    # Email/SMS delivery is not configured; expose the OTP only for local development.
     print(f"\n📧 EMAIL OTP for {email}: {otp}")
     print(f"📱 SMS OTP for {mobile}: {otp}\n")
     
     return jsonify({
         'success': True, 
-        'message': 'Registration successful! Please verify your email/mobile.',
+        'message': 'Registration successful. Enter the development OTP printed in the Python service terminal.',
         'requiresVerification': True,
         'email': email,
         'mobile': mobile
@@ -459,7 +600,7 @@ def resend_otp():
     
     print(f"\n📧 New OTP for {user['email']}: {otp}\n")
     
-    return jsonify({'success': True, 'message': 'New OTP sent to your email'})
+    return jsonify({'success': True, 'message': 'Development OTP regenerated and printed in the Python service terminal.'})
 
 
 @app.route('/api/auth/login', methods=['POST'])
@@ -492,22 +633,21 @@ def api_login():
 @app.route('/logout')
 def logout():
     session.pop('user', None)
-    flash('Logged out', 'info')
-    return redirect(url_for('login'))
+    return redirect(os.getenv('FRONTEND_URL', 'http://localhost:3000').rstrip('/') + '/login')
 
 
 @app.route('/dashboard')
 def dashboard():
     if 'user' not in session:
-        return redirect(url_for('login'))
-    return app.send_static_file('index.html')
+        return redirect(os.getenv('FRONTEND_URL', 'http://localhost:3000').rstrip('/') + '/login')
+    return redirect(os.getenv('FRONTEND_URL', 'http://localhost:3000').rstrip('/') + '/dashboard')
 
 
 @app.route('/add_camera', methods=['POST'])
 def add_camera():
     """Add a new camera to the system"""
     if 'user' not in session:
-        return redirect(url_for('login'))
+        return redirect(os.getenv('FRONTEND_URL', 'http://localhost:3000').rstrip('/') + '/login')
     
     rtsp_url = request.form.get('rtsp_url', '')
     if rtsp_url:
@@ -516,13 +656,13 @@ def add_camera():
     else:
         flash('Please provide a valid RTSP URL', 'error')
     
-    return redirect(url_for('dashboard'))
+    return redirect(os.getenv('FRONTEND_URL', 'http://localhost:3000').rstrip('/') + '/dashboard')
 
 
 @app.route('/video_feed')
 def video_feed():
-    if 'user' not in session:
-        return redirect(url_for('login'))
+    if not camera_configured:
+        return jsonify({'error': 'Configure a camera before requesting its video feed'}), 503
     return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
@@ -532,8 +672,8 @@ def health():
         'status': 'healthy',
         'message': 'Python Flask Media Server is running',
         'services': {
-            'camera': 'available',
-            'ai_processing': 'ready',
+            'camera': 'ready' if camera_configured else 'not_configured',
+            'ai_processing': 'ready' if enhanced_system is not None else 'not_initialized',
             'websocket': 'active'
         }
     })
@@ -548,49 +688,27 @@ def dashboard_api():
     return jsonify({
         'cameras': get_active_cameras(),
         'stats': get_system_stats(),
-        'recent_detections': get_recent_detections(),
-        'alerts': get_active_alerts()
+        'recent_detections': get_recent_detections_data(),
+        'alerts': get_active_alerts_data()
     })
 
 def get_active_cameras():
-    """Get list of active CCTV cameras"""
-    # This would typically come from database
-    cameras = [
-        {
-            'id': 'cam001', 
-            'rtsp_url': 'rtsp://admin:password@192.168.1.100:554/cam/realmonitor?channel=1&subtype=0',
-            'status': 'online', 
-            'location': {'lat': 28.6139, 'lng': 77.2090, 'name': 'Main Gate'},
-            'type': 'IP Camera',
-            'fps': 25,
-            'resolution': '1920x1080',
-            'last_detection': '2 min ago'
-        },
-        {
-            'id': 'cam002', 
-            'rtsp_url': 'rtsp://admin:password@192.168.1.101:554/cam/realmonitor?channel=1&subtype=0',
-            'status': 'online', 
-            'location': {'lat': 28.6140, 'lng': 77.2095, 'name': 'Parking Area'},
-            'type': 'PTZ Camera',
-            'fps': 30,
-            'resolution': '1920x1080',
-            'last_detection': '5 min ago'
-        },
-        {
-            'id': 'cam003', 
-            'rtsp_url': 'rtsp://admin:password@192.168.1.102:554/cam/realmonitor?channel=1&subtype=0',
-            'status': 'offline', 
-            'location': {'lat': 28.6138, 'lng': 77.2088, 'name': 'Side Entrance'},
-            'type': 'Dome Camera',
-            'fps': 0,
-            'resolution': '1920x1080',
-            'last_detection': 'Never'
-        }
-    ]
-    
-    # Filter only cameras that are detectable/online
-    active_cameras = [cam for cam in cameras if cam['status'] == 'online']
-    return active_cameras
+    """Report only the locally configured capture; never return stream credentials."""
+    cap = video_capture
+    if not camera_configured or cap is None or not cap.isOpened():
+        return []
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = int(cap.get(cv2.CAP_PROP_FPS))
+    return [{
+        'id': 'camera_0',
+        'status': 'online',
+        'location': {'name': 'Configured camera'},
+        'type': camera_config['source'] or 'camera',
+        'fps': fps,
+        'resolution': f'{width}x{height}',
+        'last_detection': None,
+    }]
 
 def get_system_stats():
     """Get system statistics"""
@@ -599,63 +717,142 @@ def get_system_stats():
     
     return {
         'activeCameras': len(cameras),
-        'totalDetections': 47,
-        'systemStatus': 'operational',
-        'uptime': '72:15:33',
+        'totalDetections': len(detection_results),
+        'systemStatus': 'operational' if cameras else 'waiting_for_camera',
+        'uptimeSeconds': int(time.monotonic() - app_started_monotonic),
         'cpuUsage': f"{psutil.cpu_percent():.1f}%",
         'memoryUsage': f"{psutil.virtual_memory().percent:.1f}%",
-        'diskUsage': f"{psutil.disk_usage('/').percent:.1f}%"
+        'diskUsage': f"{psutil.disk_usage(str(Config.ROOT_DIR)).percent:.1f}%"
     }
 
-def get_recent_detections():
-    """Get recent AI detections"""
-    import random
-    from datetime import datetime, timedelta
-    
-    detection_types = ['Person', 'Vehicle', 'Fire', 'Fight', 'Theft', 'Accident']
-    severities = ['High', 'Medium', 'Low']
-    
+def get_recent_detections_data():
+    """Return the latest real inference result for each configured camera."""
+    with detection_results_lock:
+        entries = list(detection_results.items())
     detections = []
-    for i in range(10):
-        detection = {
-            'id': f'det_{i+1}',
-            'timestamp': (datetime.now() - timedelta(minutes=random.randint(1, 1440))).isoformat(),
-            'type': random.choice(detection_types),
-            'severity': random.choice(severities),
-            'confidence': round(random.uniform(0.7, 0.99), 2),
-            'camera_id': random.choice(['cam001', 'cam002']),
-            'bbox': [random.randint(0, 100), random.randint(0, 100), random.randint(100, 200), random.randint(100, 200)],
-            'handled': random.choice([True, False])
-        }
-        detections.append(detection)
-    
-    return sorted(detections, key=lambda x: x['timestamp'], reverse=True)
+    for camera_id, data in entries:
+        final = data.get('results', {}).get('fusion_result', {})
+        detections.append({
+            'id': data.get('event_id', camera_id),
+            'timestamp': datetime.fromtimestamp(data['timestamp']).isoformat(),
+            'type': final.get('label', 'unknown'),
+            'severity': final.get('risk', 'LOW'),
+            'confidence': final.get('confidence', 0.0),
+            'camera_id': camera_id,
+            'candidate_event': final.get('candidate_event', final.get('label', 'normal')),
+            'confirmation_count': final.get('confirmation_count', 0),
+            'reasoning': final.get('reasoning', {}),
+        })
+    return sorted(detections, key=lambda item: item['timestamp'], reverse=True)
 
-def get_active_alerts():
-    """Get active alerts"""
-    alerts = [
-        {
-            'id': 'alert_001',
-            'type': 'Fire',
-            'message': 'Fire detected in Main Gate area',
-            'severity': 'High',
-            'timestamp': '2025-10-12T14:30:15Z',
-            'camera_id': 'cam001',
-            'status': 'active',
-            'actions_taken': ['Email sent', 'SMS sent', 'Call initiated']
-        },
-        {
-            'id': 'alert_002',
-            'type': 'Theft',
-            'message': 'Suspicious activity detected',
-            'severity': 'Medium',
-            'timestamp': '2025-10-12T14:25:30Z',
-            'camera_id': 'cam002',
-            'status': 'acknowledged',
-            'actions_taken': ['Email sent']
-        }
-    ]
-    return alerts
+def get_active_alerts_data():
+    """Return recent persisted incidents, including acknowledgement and evidence."""
+    session = db_utils.get_session()
+    try:
+        rows = session.query(db_utils.AlertRecord).order_by(db_utils.AlertRecord.last_seen.desc()).limit(50).all()
+        return [{
+            'id': row.id,
+            'timestamp': row.last_seen.isoformat(),
+            'firstSeen': row.first_seen.isoformat(),
+            'type': row.event,
+            'risk': row.risk,
+            'confidence': row.confidence,
+            'camera': row.camera_id,
+            'source': row.source,
+            'occurrences': row.occurrences,
+            'message': f"{row.occurrences} detection{'s' if row.occurrences != 1 else ''} · {row.camera_id}",
+            'evidenceUrl': f"/api/alerts/{row.id}/evidence" if row.evidence_path else None,
+            'acknowledged': row.acknowledged_at is not None,
+            'acknowledgedAt': row.acknowledged_at.isoformat() if row.acknowledged_at else None,
+            'reasoning': row.reasoning,
+        } for row in rows]
+    finally:
+        session.close()
+
+
+def _write_alert_evidence(frame=None, audio_samples=None, sample_rate=None):
+    """Save one local JPEG or WAV evidence item; never upload media externally."""
+    evidence_dir = Path(Config.DATA_DIR) / 'alerts'
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    stem = uuid4().hex
+    if frame is not None:
+        ok, encoded = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+        if not ok:
+            return None
+        filename = f'{stem}.jpg'
+        (evidence_dir / filename).write_bytes(encoded.tobytes())
+        return filename
+    if audio_samples is not None and sample_rate:
+        import wave
+        samples = np.asarray(audio_samples, dtype=np.float32).reshape(-1)
+        pcm = (np.clip(np.nan_to_num(samples), -1.0, 1.0) * 32767).astype('<i2')
+        buffer = io.BytesIO()
+        with wave.open(buffer, 'wb') as output:
+            output.setnchannels(1)
+            output.setsampwidth(2)
+            output.setframerate(int(sample_rate))
+            output.writeframes(pcm.tobytes())
+        filename = f'{stem}.wav'
+        (evidence_dir / filename).write_bytes(buffer.getvalue())
+        return filename
+    return None
+
+
+def record_alert_event(event, risk, confidence, camera_id, source='video', reasoning=None,
+                       frame=None, audio_samples=None, sample_rate=None, timestamp=None):
+    """Persist a deduplicated alert; refresh incident evidence only on escalation."""
+    event = str(event).lower()
+    if event not in FeedbackThresholdLearner.BASE_THRESHOLDS:
+        return None
+    now = datetime.fromtimestamp(timestamp or time.time())
+    key = f'{camera_id}:{event}'
+    rank = {'LOW': 0, 'MEDIUM': 1, 'HIGH': 2, 'CRITICAL': 3}
+    session = db_utils.get_session()
+    try:
+        with alert_record_lock:
+            row = session.query(db_utils.AlertRecord).filter_by(alert_key=key).order_by(db_utils.AlertRecord.last_seen.desc()).first()
+            if row and (now - row.last_seen).total_seconds() <= 120:
+                changed = False
+                escalated = rank.get(str(risk).upper(), 0) > rank.get(row.risk, 0)
+                if escalated:
+                    row.risk = str(risk).upper()
+                    row.evidence_path = _write_alert_evidence(frame, audio_samples, sample_rate) or row.evidence_path
+                    row.last_seen = now
+                    changed = True
+                elif (now - row.last_seen).total_seconds() >= 5:
+                    row.occurrences += 1
+                    row.last_seen = now
+                    changed = True
+                row.confidence = max(float(row.confidence or 0), float(confidence or 0))
+                if reasoning:
+                    row.reasoning = json.dumps(reasoning, ensure_ascii=False)[:12000]
+                if changed:
+                    session.commit()
+                return row.id
+
+            evidence = _write_alert_evidence(frame, audio_samples, sample_rate)
+            row = db_utils.AlertRecord(
+                alert_key=key,
+                event=event,
+                risk=str(risk).upper(),
+                confidence=float(confidence or 0),
+                camera_id=str(camera_id),
+                source=str(source),
+                occurrences=1,
+                evidence_path=evidence,
+                reasoning=json.dumps(reasoning or {}, ensure_ascii=False)[:12000],
+                first_seen=now,
+                last_seen=now,
+            )
+            session.add(row)
+            session.commit()
+            return row.id
+    except Exception:
+        session.rollback()
+        app.logger.exception('Could not persist alert incident')
+        return None
+    finally:
+        session.close()
 
 
 # Socket.IO events
@@ -679,78 +876,32 @@ def handle_last_frame():
 
 @socketio.on('analyze_frame')
 def handle_analyze_frame(data):
-    """Handle frame analysis from webcam"""
+    """Analyze an uploaded frame with the same agent used by the live feed."""
     try:
-        camera_id = data.get('cameraId', 1)
-        frame_data = data.get('frameData', '')
-        timestamp = data.get('timestamp', time.time())
-        
-        print(f"🎥 Analyzing frame from camera {camera_id}")
-        
-        # Here you could integrate with your existing AI models
-        # For demo, we'll simulate analysis results
-        import random
-        
+        data = data or {}
+        camera_id = data.get('cameraId', 'camera_1')
+        frame = decode_frame_payload(data.get('frameData', ''))
+        result, final_result, timestamp = analyze_frame_with_agent(frame, camera_id)
         analysis_result = {
-            'cameraId': camera_id,
+            'cameraId': str(camera_id),
             'timestamp': timestamp,
-            'objects': [
-                {'class': 'person', 'confidence': 0.85 + random.random() * 0.1, 'bbox': [100, 100, 200, 300]},
-                {'class': 'laptop', 'confidence': 0.72 + random.random() * 0.2, 'bbox': [300, 150, 450, 250]}
-            ][:random.randint(0, 3)],
-            'motion_detected': random.random() > 0.6,
-            'faces_count': random.randint(0, 2),
-            'risk_level': random.choice(['low', 'low', 'low', 'medium', 'high']),
-            'confidence': 0.7 + random.random() * 0.3
+            'event': final_result['label'],
+            'risk_level': final_result['risk'],
+            'confidence': final_result['confidence'],
+            'reasoning': result.get('reasoning', {}),
+            'objects': result.get('objects', {}),
+            'vehicles': result.get('vehicles', {}),
+            'people': result.get('people', {}),
+            'motion_spike': result.get('motion_spike', 0.0),
         }
-        
-        # Emit analysis result back to frontend
         emit('analysis_result', analysis_result)
-        
-        # Also broadcast to all connected clients for real-time updates
         socketio.emit('surveillance_update', {
-            'type': 'webcam_analysis',
+            'type': 'agent_analysis',
             'data': analysis_result
         })
-        
     except Exception as e:
         print(f"❌ Frame analysis error: {e}")
         emit('analysis_error', {'error': str(e)})
-
-
-@socketio.on('webcam_analysis')
-def handle_webcam_analysis(data):
-    """Handle webcam analysis data from frontend"""
-    try:
-        camera_id = data.get('cameraId', 1)
-        analysis = data.get('analysis', {})
-        
-        print(f"📊 Webcam analysis from camera {camera_id}: {analysis}")
-        
-        # Process the analysis data and potentially trigger alerts
-        if analysis.get('alert', False):
-            alert_data = {
-                'type': 'security_alert',
-                'camera_id': camera_id,
-                'message': f'Alert detected on Camera {camera_id}',
-                'timestamp': time.time(),
-                'severity': 'medium'
-            }
-            
-            # Broadcast alert to all clients
-            socketio.emit('security_alert', alert_data)
-        
-        # Update system stats
-        stats_update = {
-            'active_cameras': 3,  # You can track this dynamically
-            'total_alerts': analysis.get('objects', 0),
-            'last_activity': time.strftime('%H:%M:%S')
-        }
-        
-        socketio.emit('system_stats', stats_update)
-        
-    except Exception as e:
-        print(f"❌ Webcam analysis processing error: {e}")
 
 
 # ================================
@@ -761,13 +912,15 @@ def handle_webcam_analysis(data):
 def init_ai_systems():
     """Initialize AI detection systems"""
     try:
-        initialize_ai_systems()
+        ensure_ai_system()
         return jsonify({
             'success': True,
             'message': 'AI systems initialized successfully',
             'systems': {
-                'enhanced_agent': enhanced_agent is not None,
-                'hybrid_agent': hybrid_agent is not None,
+                'enhanced_agent': enhanced_system is not None,
+                'fire_smoke_model': enhanced_system is not None and enhanced_system.fire_smoke_model is not None,
+                'accident_model': enhanced_system is not None and enhanced_system.accident_model is not None,
+                'yamnet_model': enhanced_system is not None and enhanced_system.audio_event_model is not None,
                 'emotion_model': emotion_model is not None,
                 'action_model': action_model is not None
             }
@@ -777,72 +930,26 @@ def init_ai_systems():
 
 @app.route('/api/camera-analysis', methods=['POST'])
 def analyze_camera_frame():
-    """Smart camera analysis - YOLO primary, models boost accuracy"""
+    """Analyze one uploaded image with the existing visual agent."""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         b64_img = data.get('image')
         camera_id = data.get('cameraId', 'camera_1')
-        
-        if not b64_img:
-            return jsonify({'error': 'No image provided'}), 400
-
-        # Decode base64 image
-        import base64
         try:
-            img_data = base64.b64decode(b64_img.split(',')[1])
-        except Exception as e:
-            return jsonify({'error': f'Invalid base64 image: {e}'}), 400
+            frame = decode_frame_payload(b64_img)
+        except ValueError as error:
+            return jsonify({'success': False, 'error': str(error)}), 400
 
-        # Convert to numpy array
-        nparr = np.frombuffer(img_data, np.uint8)
-        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        if frame is None:
-            return jsonify({'error': 'Could not decode image'}), 400
-
-        results = {}
-        
-        # ===================================================================
-        # SMART FUSION: DISABLED (missing dependencies)
-        # ===================================================================
-        # if smart_fusion is not None:
-        #     try:
-        #         detection = smart_fusion.analyze_frame(frame, audio_data=None)
-        #         ... (code commented out)
-        #     except Exception as e:
-        #         results['smart_fusion_error'] = str(e)
-        
-        # ===================================================================
-        # FINAL RESULT (Fallback since Smart Fusion disabled)
-        # ===================================================================
-        # if 'smart_fusion' in results:
-        #     sf = results['smart_fusion']
-        #     final_result = {...}
-        # else:
-            # Fallback
-        final_result = {
-                'label': 'normal',
-                'risk': 'LOW',
-                'confidence': 0.5,
-                'reasoning': 'Smart Fusion not initialized',
-                'should_alert': False,
-                'alert_message': '',
-                'source': 'fallback'
-            }
-        
-        results['final_result'] = final_result
-
-        # Store results globally
-        global detection_results
-        detection_results[camera_id] = {
-            'timestamp': time.time(),
-            'results': results
-        }
+        agent_result, final_result, timestamp = analyze_frame_with_agent(frame, camera_id)
 
         return jsonify({
             'success': True,
-            'camera_id': camera_id,
-            'timestamp': time.time(),
-            'results': results
+            'camera_id': str(camera_id),
+            'timestamp': timestamp,
+            'results': {
+                'final_result': final_result,
+                'agent_result': agent_result,
+            }
         })
 
     except Exception as e:
@@ -857,8 +964,7 @@ def get_detection_status():
     try:
         status = {
             'ai_systems_initialized': {
-                'enhanced_agent': enhanced_agent is not None,
-                'hybrid_agent': hybrid_agent is not None,
+                'enhanced_agent': enhanced_system is not None,
                 'emotion_model': emotion_model is not None,
                 'action_model': action_model is not None
             },
@@ -883,11 +989,8 @@ def get_detection_status():
                     'fusion_confidence': fusion.get('confidence', 0)
                 })
         
-        if hybrid_agent:
-            status['hybrid_agent_status'] = hybrid_agent.get_status()
-            
-        if enhanced_agent:
-            status['enhanced_agent_status'] = enhanced_agent.get_system_status()
+        if enhanced_system:
+            status['enhanced_agent_status'] = 'ready'
 
         return jsonify(status)
 
@@ -899,30 +1002,42 @@ def get_detection_status():
 def get_system_status():
     """Get comprehensive system status for dashboard"""
     try:
-        cap = get_video_capture()
-        fps = int(cap.get(cv2.CAP_PROP_FPS)) if cap else 0
+        cap = video_capture
+        fps = round(stream_fps, 1) if stream_fps else (int(cap.get(cv2.CAP_PROP_FPS)) if cap else 0)
         
         status = {
             'hybridAI': {
-                'active': hybrid_agent is not None,
-                'confidence': 75 if hybrid_agent else 0
+                'active': enhanced_system is not None,
+                'confidence': None
             },
             'emotionModel': {
-                'active': emotion_model is not None or hybrid_agent is not None,
-                'confidence': 25
+                'active': emotion_model is not None,
+                'confidence': None
             },
             'actionModel': {
-                'active': action_model is not None or hybrid_agent is not None,
-                'confidence': 90
+                'active': action_model is not None,
+                'confidence': None
+            },
+            'fireSmokeModel': {
+                'active': enhanced_system is not None and enhanced_system.fire_smoke_model is not None,
+                'confidence': None
+            },
+            'accidentModel': {
+                'active': enhanced_system is not None and enhanced_system.accident_model is not None,
+                'confidence': None
             },
             'audioModel': {
-                'active': True,  # Audio wrapper is always available
-                'confidence': 85
+                'active': enhanced_system is not None and enhanced_system.audio_event_model is not None,
+                'confidence': None
             },
             'cameraStatus': {
-                'online': cap is not None and cap.isOpened(),
-                'fps': fps if fps > 0 else 30,
-                'latency': np.random.randint(30, 60)  # Simulated latency
+                'online': camera_configured and stream_state == 'online',
+                'configured': camera_configured,
+                'state': stream_state,
+                'error': stream_error,
+                'source': camera_config.get('source'),
+                'fps': fps,
+                'latency': None
             }
         }
         
@@ -935,24 +1050,15 @@ def get_system_status():
 def get_recent_detections():
     """Get recent detection events"""
     try:
-        # Return recent detections from detection_results
-        recent = []
-        for camera_id, data in detection_results.items():
-            results = data.get('results', {})
-            if 'fusion_result' in results:
-                fusion = results['fusion_result']
-                recent.append({
-                    'id': camera_id,
-                    'timestamp': data['timestamp'],
-                    'label': fusion.get('label', 'unknown'),
-                    'risk': fusion.get('risk', 'LOW'),
-                    'confidence': fusion.get('confidence', 0),
-                    'camera': camera_id
-                })
-        
-        # Sort by timestamp
-        recent.sort(key=lambda x: x['timestamp'], reverse=True)
-        return jsonify(recent[:100])
+        recent = get_recent_detections_data()
+        return jsonify([{
+            'id': detection['id'],
+            'timestamp': detection['timestamp'],
+            'label': detection['type'],
+            'risk': detection['severity'],
+            'confidence': detection['confidence'],
+            'camera': detection['camera_id'],
+        } for detection in recent[:100]])
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -961,66 +1067,157 @@ def get_recent_detections():
 def get_active_alerts():
     """Get active alerts"""
     try:
-        alerts = []
-        for camera_id, data in detection_results.items():
-            results = data.get('results', {})
-            if 'fusion_result' in results:
-                fusion = results['fusion_result']
-                if fusion.get('risk') == 'HIGH':
-                    alerts.append({
-                        'id': f"{camera_id}_{data['timestamp']}",
-                        'timestamp': data['timestamp'],
-                        'type': fusion.get('label', 'unknown'),
-                        'risk': 'HIGH',
-                        'confidence': fusion.get('confidence', 0),
-                        'message': f"{fusion.get('label', 'Unknown')} detected with {fusion.get('confidence', 0)*100:.1f}% confidence",
-                        'camera': camera_id
-                    })
-        
-        alerts.sort(key=lambda x: x['timestamp'], reverse=True)
-        return jsonify(alerts[:50])
+        alerts = get_active_alerts_data()
+        return jsonify([{
+            'id': alert['id'],
+            'timestamp': alert['timestamp'],
+            'firstSeen': alert['firstSeen'],
+            'type': alert['type'],
+            'risk': alert['risk'],
+            'confidence': alert['confidence'],
+            'message': alert['message'],
+            'camera': alert['camera'],
+            'source': alert['source'],
+            'occurrences': alert['occurrences'],
+            'evidenceUrl': alert['evidenceUrl'],
+            'acknowledged': alert['acknowledged'],
+            'acknowledgedAt': alert['acknowledgedAt'],
+        } for alert in alerts[:50]])
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/alerts/<int:alert_id>/acknowledge', methods=['POST'])
+def acknowledge_alert(alert_id):
+    session = db_utils.get_session()
+    try:
+        alert = session.query(db_utils.AlertRecord).filter_by(id=alert_id).first()
+        if alert is None:
+            return jsonify({'success': False, 'message': 'Alert not found'}), 404
+        alert.acknowledged_at = datetime.utcnow()
+        session.commit()
+        return jsonify({'success': True, 'message': 'Alert acknowledged'})
+    finally:
+        session.close()
+
+
+@app.route('/api/alerts/<int:alert_id>/evidence', methods=['GET'])
+def alert_evidence(alert_id):
+    session = db_utils.get_session()
+    try:
+        alert = session.query(db_utils.AlertRecord).filter_by(id=alert_id).first()
+        if alert is None or not alert.evidence_path:
+            return jsonify({'error': 'Evidence not found'}), 404
+        evidence_dir = Path(Config.DATA_DIR) / 'alerts'
+        return send_from_directory(evidence_dir, alert.evidence_path, as_attachment=False)
+    finally:
+        session.close()
+
+
+@app.route('/api/detections/feedback', methods=['POST'])
+def submit_detection_feedback():
+    """Persist a ground-truth label and use it as a reward for threshold learning."""
+    data = request.get_json(silent=True) or {}
+    event_id = data.get('eventId')
+    actual = str(data.get('actualEvent', '')).lower()
+    supported = {'normal', 'explosion', 'fire', 'accident', 'smoke', 'gunshot'}
+    if not isinstance(event_id, str) or actual not in supported:
+        return jsonify({'success': False, 'message': 'eventId and a supported actualEvent label are required'}), 400
+    with detection_results_lock:
+        match = recent_detection_snapshots.get(event_id)
+    if match is None:
+        return jsonify({'success': False, 'message': 'This event is no longer the latest result; refresh and try again.'}), 409
+    final = match.get('results', {}).get('fusion_result', {})
+    predicted = str(final.get('label', 'normal')).lower()
+    outcome = 'correct' if actual == predicted else 'missed' if predicted == 'normal' else 'false_alarm'
+    learned_event = predicted if predicted != 'normal' else actual if actual != 'normal' else None
+    if outcome == 'missed' and actual not in feedback_learner.BASE_THRESHOLDS:
+        return jsonify({'success': False, 'message': 'Could not associate the missed event with a supported class.'}), 400
+    session = db_utils.get_session()
+    try:
+        existing = session.query(db_utils.DetectionReview).filter_by(event_id=event_id).first()
+        if existing:
+            return jsonify({'success': False, 'message': 'This detection has already been reviewed.'}), 409
+        review = db_utils.DetectionReview(
+            event_id=event_id,
+            camera_id=str(match.get('camera_id', 'camera_0')),
+            predicted_label=predicted,
+            actual_label=actual,
+            confidence=float(final.get('candidate_confidence', final.get('confidence', 0.0))),
+            risk=str(final.get('risk', 'LOW')),
+            reasoning=json.dumps(final.get('reasoning', {}), ensure_ascii=False)[:12000],
+            created_at=datetime.utcfromtimestamp(match['timestamp']),
+        )
+        session.add(review)
+        session.commit()
+        learned = feedback_learner.record(learned_event, outcome) if learned_event else None
+        missed_update = None
+        if actual != 'normal' and actual != predicted:
+            missed_update = feedback_learner.record(actual, 'missed')
+    except ValueError as error:
+        session.rollback()
+        return jsonify({'success': False, 'message': str(error)}), 400
+    except Exception:
+        session.rollback()
+        app.logger.exception('Could not persist detection review')
+        return jsonify({'success': False, 'message': 'Could not save this review.'}), 500
+    finally:
+        session.close()
+    return jsonify({'success': True, 'message': 'Review saved; event threshold updated.', 'learning': learned, 'missedEventLearning': missed_update})
+
+
+@app.route('/api/detections/reviews', methods=['GET'])
+def list_detection_reviews():
+    limit = min(500, max(1, request.args.get('limit', default=100, type=int)))
+    session = db_utils.get_session()
+    try:
+        rows = session.query(db_utils.DetectionReview).order_by(db_utils.DetectionReview.reviewed_at.desc()).limit(limit).all()
+        return jsonify([{
+            'eventId': row.event_id, 'camera': row.camera_id,
+            'predicted': row.predicted_label, 'actual': row.actual_label,
+            'confidence': row.confidence, 'risk': row.risk,
+            'createdAt': row.created_at.isoformat(), 'reviewedAt': row.reviewed_at.isoformat(),
+        } for row in rows])
+    finally:
+        session.close()
+
+
+@app.route('/api/detections/evaluation', methods=['GET'])
+def detection_evaluation():
+    """Compute per-class metrics from human-reviewed ground truth only."""
+    classes = ('explosion', 'fire', 'accident', 'smoke', 'gunshot')
+    session = db_utils.get_session()
+    try:
+        rows = session.query(db_utils.DetectionReview).all()
+        metrics = {}
+        for label in classes:
+            tp = sum(row.predicted_label == label and row.actual_label == label for row in rows)
+            fp = sum(row.predicted_label == label and row.actual_label != label for row in rows)
+            fn = sum(row.actual_label == label and row.predicted_label != label for row in rows)
+            precision = tp / (tp + fp) if tp + fp else None
+            recall = tp / (tp + fn) if tp + fn else None
+            f1 = 2 * precision * recall / (precision + recall) if precision is not None and recall is not None and precision + recall else None
+            metrics[label] = {
+                'truePositives': tp, 'falsePositives': fp, 'falseNegatives': fn,
+                'precision': round(precision, 4) if precision is not None else None,
+                'recall': round(recall, 4) if recall is not None else None,
+                'f1': round(f1, 4) if f1 is not None else None,
+                'labeledSamples': sum(row.predicted_label == label or row.actual_label == label for row in rows),
+            }
+        return jsonify({'labeledReviews': len(rows), 'metrics': metrics})
+    finally:
+        session.close()
 
 
 @app.route('/api/analytics', methods=['GET'])
 def get_analytics():
     """Get analytics data for charts"""
     try:
-        # Generate sample analytics data
-        import datetime
-        now = datetime.datetime.now()
-        
-        # Hourly detections (last 24 hours)
-        hourly_detections = []
-        for i in range(24):
-            hour_time = now - datetime.timedelta(hours=23-i)
-            hourly_detections.append({
-                'hour': hour_time.strftime('%H:%M'),
-                'count': np.random.randint(5, 25)
-            })
-        
-        # Threat distribution
-        threat_distribution = [
-            {'type': 'Fire', 'count': np.random.randint(1, 10)},
-            {'type': 'Theft', 'count': np.random.randint(5, 20)},
-            {'type': 'Fight', 'count': np.random.randint(2, 15)},
-            {'type': 'Suspicious', 'count': np.random.randint(10, 30)},
-            {'type': 'Normal', 'count': np.random.randint(50, 100)}
-        ]
-        
-        # Model accuracy
-        model_accuracy = [
-            {'model': 'Hybrid AI', 'accuracy': 75},
-            {'model': 'Emotion', 'accuracy': 82},
-            {'model': 'Action', 'accuracy': 88},
-            {'model': 'Audio', 'accuracy': 79}
-        ]
-        
         return jsonify({
-            'hourlyDetections': hourly_detections,
-            'threatDistribution': threat_distribution,
-            'modelAccuracy': model_accuracy
+            'hourlyDetections': [],
+            'threatDistribution': [],
+            'modelAccuracy': [],
+            'message': 'Analytics are unavailable until event history is persisted.'
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1028,14 +1225,56 @@ def get_analytics():
 
 @app.route('/api/audio/toggle', methods=['POST'])
 def toggle_audio():
-    """Toggle audio detection"""
+    """Compatibility endpoint: browser microphone is controlled by the dashboard."""
+    return jsonify({'success': True, 'message': 'Use the dashboard microphone control.'})
+
+
+@app.route('/api/audio-analysis', methods=['POST', 'OPTIONS'])
+def analyze_audio_window():
+    """Analyze one mono float32 microphone window with local YAMNet."""
+    if request.method == 'OPTIONS':
+        return jsonify({'success': True}), 200
     try:
-        data = request.get_json()
-        enabled = data.get('enabled', False)
-        # Store audio state (could be in database or global variable)
-        return jsonify({'success': True, 'audioEnabled': enabled})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        payload = request.get_json(silent=True) or {}
+        encoded = payload.get('audioData')
+        sample_rate = int(payload.get('sampleRate', 0))
+        if not isinstance(encoded, str) or not encoded:
+            return jsonify({'error': 'audioData must be base64 float32 samples'}), 400
+        if sample_rate < 8000 or sample_rate > 96000:
+            return jsonify({'error': 'sampleRate must be between 8000 and 96000 Hz'}), 400
+        raw = base64.b64decode(encoded, validate=True)
+        if len(raw) > 512_000 or len(raw) % 4:
+            return jsonify({'error': 'Audio window must be at most 128,000 float32 samples'}), 413
+        samples = np.frombuffer(raw, dtype='<f4').copy()
+        if not samples.size:
+            return jsonify({'error': 'Audio window is empty'}), 400
+        system = ensure_ai_system()
+        with inference_lock:
+            scores = system.classify_audio_events(samples, sample_rate)
+        thresholds = {
+            'gunshot': float(os.getenv('AUDIO_GUNSHOT_THRESHOLD', '0.20')),
+            'explosion': float(os.getenv('AUDIO_EXPLOSION_THRESHOLD', '0.20')),
+        }
+        events = {}
+        for label, score in scores.items():
+            audio_event_streaks[label] = audio_event_streaks[label] + 1 if score >= thresholds[label] else 0
+            events[label] = audio_event_streaks[label] >= 2
+            if events[label]:
+                record_alert_event(
+                    label,
+                    'CRITICAL' if score >= 0.75 else 'HIGH',
+                    float(score),
+                    'microphone',
+                    source='audio',
+                    reasoning={'model': 'YAMNet', 'score': float(score), 'threshold': thresholds[label]},
+                    audio_samples=samples,
+                    sample_rate=sample_rate,
+                )
+        return jsonify({'success': True, 'scores': scores, 'events': events})
+    except (ValueError, TypeError, base64.binascii.Error) as error:
+        return jsonify({'error': str(error)}), 400
+    except Exception as error:
+        return jsonify({'error': str(error)}), 503
 
 
 @app.route('/api/camera/configure', methods=['POST', 'OPTIONS'])
@@ -1047,7 +1286,6 @@ def configure_camera():
     if request.method == 'OPTIONS':
         return jsonify({'success': True}), 200
     
-    # Immediate response to show we received the request
     print("\n" + "=" * 60)
     print("🎬 CAMERA CONFIGURATION REQUEST RECEIVED")
     print("=" * 60)
@@ -1055,30 +1293,39 @@ def configure_camera():
     
     try:
         data = request.get_json()
-        print(f"📦 Request Data: {data}")
+        if not isinstance(data, dict):
+            return jsonify({'success': False, 'message': 'A JSON camera configuration is required'}), 400
         
-        source = data.get('source', 'builtin')  # 'builtin', 'rtsp', 'ip', 'youtube', or 'video'
-        rtsp_url = data.get('rtspUrl', '')
-        ip_url = data.get('ipUrl', '')
-        youtube_url = data.get('youtubeUrl', '')
+        source = data.get('source', 'builtin')
+        if source == 'file':
+            source = 'video'
+        if source not in {'builtin', 'rtsp', 'ip', 'youtube', 'video'}:
+            return jsonify({'success': False, 'message': 'Unsupported camera source'}), 400
+        rtsp_url = (data.get('rtspUrl') or '').strip()
+        ip_url = (data.get('ipUrl') or '').strip()
+        youtube_url = (data.get('youtubeUrl') or '').strip()
         video_file = data.get('videoFilePath', '')
         
         print(f"📹 Camera Configuration Request:")
         print(f"   Source: {source}")
-        print(f"   RTSP URL: {rtsp_url}")
-        print(f"   IP URL: {ip_url}")
-        print(f"   YouTube URL: {youtube_url}")
-        print(f"   Video File: {video_file}")
         
         # Validate URLs
         if source == 'rtsp' and not rtsp_url:
             return jsonify({'success': False, 'message': 'RTSP URL is required'}), 400
+        if source == 'rtsp' and urlparse(rtsp_url).scheme.lower() not in {'rtsp', 'rtsps'}:
+            return jsonify({'success': False, 'message': 'RTSP URLs must start with rtsp:// or rtsps://'}), 400
         
         if source == 'ip' and not ip_url:
             return jsonify({'success': False, 'message': 'IP Camera URL is required'}), 400
+        if source == 'ip' and (urlparse(ip_url).scheme.lower() not in {'http', 'https', 'rtsp', 'rtsps'} or not urlparse(ip_url).netloc):
+            return jsonify({'success': False, 'message': 'Enter a valid HTTP(S) or RTSP camera stream URL'}), 400
         
         if source == 'youtube' and not youtube_url:
             return jsonify({'success': False, 'message': 'YouTube URL is required'}), 400
+        if source == 'youtube':
+            host = (urlparse(youtube_url).hostname or '').lower()
+            if urlparse(youtube_url).scheme.lower() != 'https' or host not in {'youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be', 'www.youtube-nocookie.com'}:
+                return jsonify({'success': False, 'message': 'Enter a valid HTTPS YouTube video or live stream link'}), 400
         
         if source == 'video' and not video_file:
             return jsonify({'success': False, 'message': 'Video file path is required'}), 400
@@ -1109,29 +1356,33 @@ def configure_camera():
         if cap is None or not cap.isOpened():
             camera_configured = False
             reset_video_capture()
+            if source == 'builtin':
+                message = 'Could not open the computer camera. Check Windows camera permission, close apps using it, or choose another device index in VIDEO_SOURCE.'
+            elif source == 'youtube':
+                message = 'Could not open the YouTube stream. Check that it is public/live and that yt-dlp is installed and up to date.'
+            else:
+                message = 'Could not open that network stream. Check the address, credentials, firewall, and camera stream path.'
             return jsonify({
                 'success': False,
-                'message': 'Failed to open camera with the provided configuration. Check URL format and network connectivity.'
+                'message': message
             }), 400
         
         print(f"✅ Camera configured successfully: {source}")
         
-        # Initialize AI systems if not already done
-        if hybrid_agent is None or enhanced_agent is None:
-            print("🤖 Initializing AI systems...")
-            initialize_ai_systems()
+        # Keep video flowing independently while large models initialize and infer.
+        start_stream_workers()
         
         return jsonify({
             'success': True,
             'message': f'Camera configured to {source}',
             'config': {
-                'source': camera_config['source'],
-                'rtsp_url': camera_config['rtsp_url'],
-                'ip_url': camera_config['ip_url'],
-                'youtube_url': camera_config['youtube_url'],
-                'video_file': camera_config['video_file']
+                'source': camera_config['source']
             }
         })
+    except RuntimeError as e:
+        camera_configured = False
+        reset_video_capture()
+        return jsonify({'success': False, 'message': str(e)}), 400
     except Exception as e:
         print(f"❌ Camera configuration error: {e}")
         camera_configured = False
@@ -1155,7 +1406,7 @@ def start_camera():
 
 @app.route('/api/camera/stop', methods=['POST'])
 def stop_camera():
-    """Stop camera feed processing"""
+    """Stop camera capture and inference workers and release the source."""
     global camera_configured
     try:
         print("⏹️ Stopping camera feed...")
@@ -1217,11 +1468,11 @@ Integrate with reportlab or similar library for actual PDF generation.
 
 if __name__ == '__main__':
     import os
-    port = int(os.environ.get('FLASK_PORT', 5001))  # Default to 5001, not 5000
+    port = int(os.environ.get('FLASK_PORT', 5000))
+    host = os.environ.get('FLASK_HOST', '127.0.0.1')
     print(f"🐍 Starting Python Flask Media Server on port {port}")
     print(f"🎥 Video feed: http://localhost:{port}/video_feed") 
     print(f"🏥 Health check: http://localhost:{port}/health")
     print(f"📊 Dashboard API: http://localhost:{port}/dashboard")
     
-    # Using eventlet for SocketIO if installed
-    socketio.run(app, host='0.0.0.0', port=port, debug=True)
+    socketio.run(app, host=host, port=port, debug=False)

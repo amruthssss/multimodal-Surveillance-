@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""
+r"""
 train_yolov11.py
 
 Lightweight wrapper around Ultralytics YOLO training API.
@@ -9,20 +9,20 @@ Features:
 - CLI for common training params (data, model, epochs, batch, imgsz, project/name)
 - Optional automatic data.yaml creation and simple train/val split when given a dataset folder
 - Optional ONNX export after training
-- Optimized hyperparameters for 95%+ mAP on CCTV datasets
+- Tunable training defaults for project-specific CCTV datasets
 
 Recommended training command for RTX 4060 (8GB VRAM):
-  python train_yolov11.py --data yolo_ready_final --model yolov11m.pt --epochs 150 --batch 8 --accumulate 4 --imgsz 640 --auto-create
+  python train_yolov11.py --data yolo_ready_final --model yolo26m.pt --epochs 150 --batch 8 --accumulate 4 --imgsz 640 --auto-create
 
 For more VRAM (16GB+):
-  python train_yolov11.py --data yolo_ready_final --model yolov11n.pt --epochs 200 --batch 16 --accumulate 2 --imgsz 640 --auto-create
+  python train_yolov11.py --data yolo_ready_final --model yolo26n.pt --epochs 200 --batch 16 --accumulate 2 --imgsz 640 --auto-create
 
 Usage examples:
   # Local RTX 4060 (PowerShell)
-  python .\train_yolov11.py --data .\yolo_ready_final --model yolov11m.pt --epochs 150 --batch 8 --accumulate 4 --auto-create
+  python .\train_yolov11.py --data .\yolo_ready_final --model yolo26m.pt --epochs 150 --batch 8 --accumulate 4 --auto-create
 
   # Colab (after extraction)
-  python /content/train_yolov11.py --data /content/yolo_ready_final --model yolov11m.pt --epochs 150 --batch 16
+  python /content/train_yolov11.py --data /content/yolo_ready_final --model yolo26m.pt --epochs 150 --batch 16
 
 Requires: pip install ultralytics
 """
@@ -151,14 +151,14 @@ def auto_create_data_yaml(dataset_root: Path, out_yaml: Path, val_ratio: float =
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description='Train YOLOv11 (Ultralytics) with helpful defaults for CCTV datasets')
+    p = argparse.ArgumentParser(description='Train an Ultralytics YOLO model on a CCTV dataset')
     p.add_argument('--data', required=True, help='path to data.yaml or dataset root (folder containing images/ and labels/)')
-    p.add_argument('--model', default='yolov11m.pt', help='backbone weights (yolov11m.pt or yolov11l.pt)')
+    p.add_argument('--model', default='yolo26m.pt', help='Ultralytics checkpoint or local weights file (default: yolo26m.pt)')
     p.add_argument('--epochs', type=int, default=100)
     p.add_argument('--batch', type=int, default=32)
     p.add_argument('--imgsz', type=int, default=640)
     p.add_argument('--project', default='runs/detect')
-    p.add_argument('--name', default='yolo_v11_95_percent')
+    p.add_argument('--name', default='yolo26_custom_events')
     p.add_argument('--device', default='0', help='device id or cpu')
     p.add_argument('--workers', type=int, default=8)
     p.add_argument('--cache', action='store_true', help='cache images in RAM')
@@ -197,51 +197,17 @@ def main():
 
     print(f"📥 Loading model: {args.model}")
     
-    # Auto-download YOLOv11 weights if not present
+    # Let Ultralytics resolve and download supported pretrained checkpoints.
     model_path = Path(args.model)
-    if not model_path.exists():
-        # Map of YOLOv11 model variants to their download URLs
-        YOLO11_URLS = {
-            'yolov11n.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt',
-            'yolov11s.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11s.pt',
-            'yolov11m.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11m.pt',
-            'yolov11l.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11l.pt',
-            'yolov11x.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11x.pt',
-        }
-        
-        download_url = args.weights_url or YOLO11_URLS.get(args.model)
-        
-        if download_url:
-            import urllib.request
-            try:
-                print(f"⬇️  Downloading {args.model} from Ultralytics...")
-                print(f"    URL: {download_url}")
-                urllib.request.urlretrieve(download_url, str(model_path))
-                print(f"✅ Successfully downloaded {args.model}")
-                model = YOLO(str(model_path))
-            except Exception as e:
-                print(f"❌ Download failed: {e}")
-                print(f"\n💡 Solutions:")
-                print(f"   1. Check your internet connection")
-                print(f"   2. Download manually from: {download_url}")
-                print(f"      Save to: {model_path.resolve()}")
-                print(f"   3. Try a different model: yolov11n.pt (smallest/fastest)")
-                raise FileNotFoundError(f"Failed to download {args.model}")
-        else:
-            print(f"❌ Unknown model: {args.model}")
-            print(f"\n💡 Available YOLOv11 models:")
-            for name in YOLO11_URLS.keys():
-                print(f"   - {name}")
-            print(f"\nOr provide custom URL: --weights-url https://...")
-            raise FileNotFoundError(f"{model_path} does not exist")
-    else:
-        print(f"✅ Loading local model: {model_path}")
-        model = YOLO(str(model_path))
+    if args.weights_url and not model_path.exists():
+        import urllib.request
+        print(f"⬇️  Downloading custom checkpoint from {args.weights_url}")
+        urllib.request.urlretrieve(args.weights_url, str(model_path))
+    model = YOLO(str(model_path) if model_path.exists() else args.model)
 
-    # Optimized hyperparameters for 4-class CCTV event detection (95%+ mAP target)
-    # Calculate effective batch size with gradient accumulation
-    nbs = 64  # nominal batch size for normalization
-    accumulate = max(1, round(nbs / args.batch)) if args.accumulate == 1 else args.accumulate
+    # Starting hyperparameters for a small CCTV event dataset; validate on held-out footage.
+    # Ultralytics uses nbs as its nominal batch size to calculate accumulation.
+    nbs = args.batch * max(1, args.accumulate)
     
     train_kwargs = dict(
         data=str(yaml_path),
@@ -249,7 +215,7 @@ def main():
         patience=30,  # Increased patience for better convergence
         imgsz=args.imgsz,
         batch=args.batch,
-        # Note: accumulate is handled via environment/internal logic in newer ultralytics
+        nbs=nbs,
         optimizer='AdamW',  # AdamW for better generalization
         lr0=0.002,  # Lower initial LR for stable convergence
         lrf=0.001,  # Lower final LR for fine-tuning

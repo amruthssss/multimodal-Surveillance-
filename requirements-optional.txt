@@ -1,0 +1,6 @@
+# Optional emotion-recognition model support. TensorFlow 2.21 wheels require Python 3.13+.
+# Use in a separate environment from the core runtime because TensorFlow constrains NumPy.
+numpy>=2.0,<2.2
+tensorflow==2.21.0; python_version >= "3.13"
+pandas>=2.3,<4
+scikit-learn>=1.9,<2

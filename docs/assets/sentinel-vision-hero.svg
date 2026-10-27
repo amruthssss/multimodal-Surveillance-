@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="340" viewBox="0 0 1200 340" role="img" aria-labelledby="title description">
+  <title id="title">Sentinel Vision — multimodal surveillance</title>
+  <desc id="description">Animated dark red operations display with radar sweeps and a glowing camera target.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#171012"/><stop offset=".58" stop-color="#09090b"/><stop offset="1" stop-color="#220b0d"/>
+    </linearGradient>
+    <linearGradient id="beam" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#ff2525" stop-opacity="0"/><stop offset=".5" stop-color="#ff4b45" stop-opacity=".8"/><stop offset="1" stop-color="#ff2525" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="glow"><stop stop-color="#ff3b35" stop-opacity=".28"/><stop offset="1" stop-color="#ff3b35" stop-opacity="0"/></radialGradient>
+    <pattern id="grid" width="36" height="36" patternUnits="userSpaceOnUse"><path d="M36 0H0V36" fill="none" stroke="#ffffff" stroke-opacity=".055" stroke-width="1"/></pattern>
+    <filter id="soft"><feGaussianBlur stdDeviation="7"/></filter>
+    <clipPath id="screen"><rect x="1" y="1" width="1198" height="338" rx="20"/></clipPath>
+  </defs>
+  <g clip-path="url(#screen)">
+    <rect width="1200" height="340" fill="url(#bg)"/>
+    <rect width="1200" height="340" fill="url(#grid)"/>
+    <circle cx="970" cy="170" r="230" fill="url(#glow)"/>
+    <g transform="translate(958 170)" fill="none" stroke="#ff514b">
+      <circle r="112" stroke-opacity=".16"/><circle r="82" stroke-opacity=".23"/><circle r="50" stroke-opacity=".3"/>
+      <path d="M-122 0H122M0-122V122" stroke-opacity=".17" stroke-dasharray="4 7"/>
+      <path d="M0 0L0-112A112 112 0 0 1 75-83Z" fill="#ff4943" fill-opacity=".12" stroke="none">
+        <animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="8s" repeatCount="indefinite"/>
+      </path>
+      <circle r="6" fill="#ff514b" stroke="none"><animate attributeName="r" values="5;8;5" dur="2s" repeatCount="indefinite"/></circle>
+      <circle cx="50" cy="-42" r="4" fill="#ff6b62" stroke="none"><animate attributeName="opacity" values=".35;1;.35" dur="1.7s" repeatCount="indefinite"/></circle>
+    </g>
+    <g fill="none" stroke="#ff514b" stroke-opacity=".62">
+      <path d="M826 78h30M826 78v30M1090 78h-30M1090 78v30M826 262h30M826 262v-30M1090 262h-30M1090 262v-30"/>
+    </g>
+    <rect x="0" y="0" width="1200" height="2" fill="url(#beam)" opacity=".8">
+      <animate attributeName="y" values="0;338;0" dur="7s" repeatCount="indefinite"/>
+    </rect>
+    <g font-family="Segoe UI,Arial,sans-serif">
+      <text x="74" y="86" fill="#ff716a" font-size="13" letter-spacing="4">LOCAL AI  /  MULTIMODAL OPERATIONS</text>
+      <text x="70" y="165" fill="#fff5f4" font-size="55" font-weight="700" letter-spacing="-2">SENTINEL <tspan fill="#ff4640">VISION</tspan></text>
+      <text x="74" y="207" fill="#bac0ca" font-size="17" letter-spacing="1.2">See the event. Verify the signal. Respond with context.</text>
+      <g transform="translate(75 256)" font-family="Consolas,monospace" font-size="11" letter-spacing="1">
+        <rect width="440" height="31" rx="6" fill="#ffffff" fill-opacity=".045" stroke="#ff514b" stroke-opacity=".28"/>
+        <circle cx="17" cy="15.5" r="4" fill="#ff514b"><animate attributeName="opacity" values="1;.35;1" dur="1.4s" repeatCount="indefinite"/></circle>
+        <text x="31" y="20" fill="#e6c9c7">LIVE VIDEO · AUDIO EVENTS · OPERATOR REVIEW</text>
+      </g>
+    </g>
+    <text x="1120" y="317" text-anchor="end" fill="#ff7a72" fill-opacity=".76" font-family="Consolas,monospace" font-size="10" letter-spacing="2">MONITOR / VERIFY / ACKNOWLEDGE</text>
+  </g>
+  <rect x="1" y="1" width="1198" height="338" rx="20" fill="none" stroke="#ff514b" stroke-opacity=".35"/>
+</svg>

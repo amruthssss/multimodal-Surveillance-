@@ -1,54 +1,27 @@
-Flask==3.0.3
-Flask-SocketIO==5.3.6
-Flask-Login==0.6.3
-Flask-CORS==4.0.1
-eventlet==0.36.1
-python-dotenv==1.0.1
-Werkzeug==3.0.3
-Jinja2==3.1.4
-itsdangerous==2.2.0
+# Python 3.12+ core runtime for the Flask camera/API service and YOLO pipeline.
+Flask==3.1.3
+Flask-Cors==6.0.5
+Flask-SocketIO==5.7.0
+python-dotenv>=1.2,<2
+SQLAlchemy>=2.0.48,<3
 
-# Auth & security
-bcrypt==4.1.2
-passlib==1.7.4
-PyJWT==2.9.0
+# Computer vision and inference. Install matching CUDA wheels separately for GPU use.
+numpy>=2.2,<2.6
+opencv-python==5.0.0.93
+torch==2.14.1
+torchvision==0.29.1
+ultralytics>=8.4.12,<9
+huggingface-hub>=0.34,<1
+onnxruntime>=1.20,<2
+Pillow>=11,<13
 
-# Database
-SQLAlchemy==2.0.32
-alembic==1.13.2
+# Audio features used by EnhancedUltraSystem.
+librosa==1.0.0
+soundfile>=0.13,<1
+scipy>=1.16,<2
 
-# ML / CV
-opencv-python==4.10.0.84
-ultralytics==8.2.95
-torch==2.3.1+cpu
-torchvision==0.18.1+cpu
-torchaudio==2.3.1+cpu
-# If GPU needed, replace above with proper CUDA wheels from pytorch.org
-tensorflow==2.16.1
-numpy==1.26.4
-pandas==2.2.2
-scikit-learn==1.5.1
-protobuf==4.25.3
-
-# Audio
-librosa==0.10.2.post1
-soundfile==0.12.1
-
-# Utilities
-requests==2.32.3
-email-validator==2.2.0
-Pillow==10.4.0
-
-# Alerting (optional)
-twilio==9.2.3
-gTTS==2.5.3
-pydub==0.25.1
-playsound==1.3.0
-
-# Async tasks (optional)
-celery==5.4.0
-redis==5.0.8
-
-# Misc
-psutil==6.0.0
-pytest==8.3.2
+# Utilities used by the app and local scripts.
+requests>=2.32.3,<3
+psutil>=7,<8
+truststore>=0.10,<1
+yt-dlp[default]>=2025.10.22,<2030

@@ -15,6 +15,8 @@ from utils.audio_wrapper import AudioWrapper
 
 def export_action(out_path: str):
     wrapper = ActionWrapper(path='models/action_model.pth', device='cpu')
+    if wrapper.model is None:
+        raise RuntimeError(wrapper.error or 'Action model checkpoint could not be loaded')
     dummy = torch.randn(1, 3, 224, 224)
     model = wrapper.model.eval()
     torch.onnx.export(

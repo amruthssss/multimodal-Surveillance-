@@ -1,4 +1,4 @@
-"""Audio classification wrapper placeholder using torch or simple heuristics.
+"""Audio classification wrapper for an optional TorchScript checkpoint.
 This implementation expects short audio waveform arrays; real pipeline would
 handle streaming microphone / camera embedded audio.
 """
@@ -23,8 +23,7 @@ class AudioWrapper:
 
     def predict(self, wav_tensor) -> Tuple[str, float]:
         if not self.model or not torch:
-            # Dummy heuristic: random output not ideal; return silence
-            return 'silence', 0.1
+            return 'unavailable', 0.0
         try:
             with torch.no_grad():
                 out = self.model(wav_tensor.to(self.device))
@@ -32,4 +31,4 @@ class AudioWrapper:
                 idx = int(torch.argmax(probs))
                 return self.labels[idx], float(probs[idx])
         except Exception:
-            return 'silence', 0.1
+            return 'unavailable', 0.0

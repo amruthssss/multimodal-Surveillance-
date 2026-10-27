@@ -1,21 +1,10 @@
-"""
-🔥 ENHANCED FINAL ULTRA HYBRID SYSTEM
-Combines best features from multiple agents:
-- Your trained YOLOv11 model (75.5% mAP@50)
-- 700K+ learned patterns from web-learning agent
-- Optical flow motion detection (Farneback)
-- Morphological HSV filtering for cleaner masks
-- Adaptive reliability-weighted fusion
-- Streak validation (prevents flickering alerts)
-- Feature logging to CSV (for future ML training)
-- Alert clip saving (4s clips of each event)
-- Green UI matching your reference images
-"""
+"""Video event analysis using temporal visual heuristics and optional YOLO weights."""
 
 import cv2
 import numpy as np
 import torch
 from ultralytics import YOLO
+from huggingface_hub import hf_hub_download
 import pickle
 import os
 from collections import deque, defaultdict
@@ -26,6 +15,7 @@ import soundfile as sf
 from scipy import signal
 import tempfile
 from enhanced_detection_features import TemporalEventTracker, FeatureEngineer
+from utils.audio_event_detector import YamnetEventDetector
 
 class EnhancedPatternAgent:
     """Enhanced AI Agent with optical flow, morphological filtering, and adaptive fusion"""
@@ -35,6 +25,7 @@ class EnhancedPatternAgent:
         print(f"🧠 Enhanced Agent using: {self.device.upper()}")
         
         # Load learned patterns
+        self.used_fallback_patterns = False
         self.learned_patterns = self.load_learned_patterns()
         
         # Optical flow state (Farneback method)
@@ -121,7 +112,7 @@ class EnhancedPatternAgent:
         if not os.path.exists(self.feature_log):
             with open(self.feature_log, 'w') as f:
                 f.write("timestamp,frame,explosion_agent,explosion_yolo,fire_agent,fire_yolo,")
-                f.write("accident_agent,accident_yolo,fighting_agent,fighting_yolo,smoke_agent,")
+                f.write("accident_agent,accident_yolo,smoke_agent,gunshot_audio,")
                 f.write("motion_flow,edge_density,brightness,final_event,final_conf\n")
         
         # ===== ADVANCED DETECTION FEATURES =====
@@ -131,7 +122,10 @@ class EnhancedPatternAgent:
         # Feature engineering (event-specific weights, history tracking)
         self.feature_engineer = FeatureEngineer(history_size=30)
         
-        print(f"✅ Loaded learned patterns: {len(self.learned_patterns)} event signatures")
+        if self.used_fallback_patterns:
+            print(f"✅ Using heuristic signatures: {len(self.learned_patterns)} event groups")
+        else:
+            print(f"✅ Loaded local pattern groups: {len(self.learned_patterns)} event signatures")
         print(f"✅ Optical flow motion detection enabled")
         print(f"✅ Morphological HSV filtering enabled")
         print(f"✅ Streak validation: {self.streak_requirement} frames")
@@ -217,7 +211,8 @@ class EnhancedPatternAgent:
         
         # If no files found, use fallback patterns
         if not all_patterns or total_loaded == 0:
-            print("   ⚠️ No learned patterns found, using fallback signatures")
+            print("   ⚠️ No learned pattern file found; using built-in heuristic signatures")
+            self.used_fallback_patterns = True
             all_patterns = {
                 'explosion': [
                     'massive_smoke_cloud', 'bright_flash', 'debris_scatter',
@@ -247,7 +242,8 @@ class EnhancedPatternAgent:
             }
             total_loaded = sum(len(p) for p in all_patterns.values())
         
-        print(f"   📊 Total learned patterns: {total_loaded:,}")
+        if not self.used_fallback_patterns:
+            print(f"   📊 Local pattern entries loaded: {total_loaded:,}")
         
         # Create signature mappings for quick lookup
         patterns_with_signatures = {}
@@ -599,12 +595,9 @@ class EnhancedPatternAgent:
         self.history['brightness'].append(mean_brightness)
         self.history['edges'].append(edge_density)
         
-        # Balanced fusion (80% Agent + 20% YOLO) - Best accuracy
+        # Use the YOLO event score as corroboration when that class exists.
         agent_conf = min(score, 100.0)
-        agent_weight = 0.80  # Trust agent 80% - learned from 219K patterns
-        yolo_weight = 0.20   # Trust YOLO 20% - trained on your data
-        
-        final_conf = (agent_conf * agent_weight) + (yolo_conf * yolo_weight)
+        final_conf = (agent_conf * 0.70 + yolo_conf * 0.30) if yolo_conf > 0 else agent_conf
         
         reasoning = " | ".join(factors) if factors else "No explosion patterns"
         
@@ -677,12 +670,9 @@ class EnhancedPatternAgent:
                 score += pattern_boost
                 factors.append(f"Patterns: {pattern_count}/500")
         
-        # Agent-heavy fusion (80% Agent + 20% YOLO)
+        # Equalize evidence when the optional class-specific detector fires.
         agent_conf = min(score, 100.0)
-        agent_weight = 0.80  # Trust agent 80% - learned from 219K patterns
-        yolo_weight = 0.20   # Trust YOLO 20%
-        
-        final_conf = (agent_conf * agent_weight) + (yolo_conf * yolo_weight)
+        final_conf = (agent_conf * 0.50 + yolo_conf * 0.50) if yolo_conf > 0 else agent_conf
         
         reasoning = " | ".join(factors) if factors else "No fire patterns"
         
@@ -739,7 +729,9 @@ class EnhancedPatternAgent:
         
         motion_detected = False
         if len(self.history['motion_flow']) > 5:
-            recent_avg = np.mean(list(self.history['motion_flow'])[-5:])
+            motion_history = list(self.history['motion_flow'])
+            flow_motion = motion_history[-1]
+            recent_avg = np.mean(motion_history[-6:-1])
             motion_spike = abs(flow_motion - recent_avg)
             
             # MUCH STRICTER motion spike thresholds - only real collisions
@@ -792,15 +784,10 @@ class EnhancedPatternAgent:
                 factors.append(f"Patterns: {pattern_count}/500")
                 factors.append(f"Patterns: {pattern_count}/500")
         
-        # Agent-heavy fusion (80% Agent + 20% YOLO Vehicle Detection)
-        # Agent does the heavy lifting (motion, edges, chaos analysis)
-        # YOLO provides object context (are there vehicles?)
+        # Vehicle detection is context, not crash evidence. Motion and impact cues
+        # carry 90% so ordinary cars in frame cannot raise accident confidence.
         agent_conf = min(score, 100.0)
-        agent_weight = 0.80  # Trust agent 80% - motion/visual analysis
-        yolo_weight = 0.20   # Trust YOLO 20% - vehicle detection
-        
-        # YOLO contribution: Vehicle detection confidence
-        final_conf = (agent_conf * agent_weight) + (yolo_conf * yolo_weight)
+        final_conf = agent_conf * 0.90 + yolo_conf * 0.10
         
         reasoning = " | ".join(factors) if factors else "No accident patterns"
         
@@ -1197,28 +1184,46 @@ class AudioAnalyzer:
 class EnhancedUltraSystem:
     """Enhanced Ultra Hybrid System with all improvements"""
     
-    def __init__(self, model_path="runs/detect/train/weights/best.pt", use_audio=True):
+    def __init__(self, model_path=None, use_audio=True):
         print("\n" + "="*80)
         print("🚀 ENHANCED FINAL ULTRA HYBRID SYSTEM WITH AUDIO")
         print("="*80)
         
-        # Initialize YOLO
-        self.yolo = YOLO(model_path)
+        # The custom event classifier is not shipped with the public repository.
+        # Keep heuristic detection available and use the COCO model for object context.
+        self.has_custom_model = bool(model_path and os.path.isfile(model_path))
+        self.yolo = None
+        if self.has_custom_model:
+            try:
+                self.yolo = YOLO(model_path)
+            except Exception as model_error:
+                self.has_custom_model = False
+                print(f"⚠️ Custom event model could not be loaded ({model_error}); continuing without event weights")
+        if not self.has_custom_model:
+            print("ℹ️ No optional project-specific event checkpoint configured")
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.yolo.to(self.device)
+        if self.yolo is not None:
+            self.yolo.to(self.device)
         print(f"🎯 YOLO using: {self.device.upper()}")
         
         # Load standard YOLO for vehicle detection (pretrained COCO model)
         try:
-            # Try to load YOLOv8n for vehicle detection
-            if os.path.exists('yolov8n.pt'):
-                self.vehicle_yolo = YOLO('yolov8n.pt')
+            # YOLO26 nano is the current lightweight pretrained COCO detector.
+            # Ultralytics downloads official weights on first use; set YOLO_MODEL
+            # to a local path or another supported pretrained checkpoint to override.
+            model_name = os.getenv('YOLO_MODEL', 'yolo26n.pt')
+            try:
+                self.vehicle_yolo = YOLO(model_name)
                 self.has_vehicle_detection = True
-                print(f"🚗 Vehicle detection YOLO loaded: yolov8n.pt")
-            else:
-                self.vehicle_yolo = None
-                self.has_vehicle_detection = False
-                print(f"⚠️  yolov8n.pt not found - will use heuristics for vehicle detection")
+                print(f"🚗 Pretrained object detector loaded: {model_name}")
+            except Exception as model_error:
+                # Preserve compatibility with checkpoints already present offline.
+                fallback = next((name for name in ('yolo11n.pt', 'yolov8n.pt') if os.path.isfile(name)), None)
+                if fallback is None:
+                    raise model_error
+                self.vehicle_yolo = YOLO(fallback)
+                self.has_vehicle_detection = True
+                print(f"⚠️ {model_name} unavailable; using existing checkpoint: {fallback}")
         except Exception as e:
             self.vehicle_yolo = None
             self.has_vehicle_detection = False
@@ -1226,6 +1231,28 @@ class EnhancedUltraSystem:
         
         # COCO vehicle classes: car=2, motorcycle=3, bus=5, truck=7
         self.vehicle_classes = {2, 3, 5, 7}
+
+        self.event_model_interval = max(1, int(os.getenv('EVENT_MODEL_INTERVAL', '6')))
+        self.fire_smoke_confidence = float(os.getenv('FIRE_SMOKE_CONFIDENCE', '0.45'))
+        self.accident_confidence = float(os.getenv('ACCIDENT_CONFIDENCE', '0.55'))
+        self.event_model_cache = {'fire': 0.0, 'smoke': 0.0, 'accident': 0.0}
+        self.fire_smoke_model = self._load_yolo_event_model(
+            'FIRE_SMOKE_MODEL_PATH', 'FIRE_SMOKE_MODEL_REPO', 'FIRE_SMOKE_MODEL_FILE',
+            'models/fire_smoke.pt', 'seawsurf/fire_yolo', 'weights/best.pt',
+            '🔥 Fire/smoke detector'
+        )
+        self.accident_model = self._load_yolo_event_model(
+            'TRAFFIC_ACCIDENT_MODEL_PATH', 'TRAFFIC_ACCIDENT_MODEL_REPO',
+            'TRAFFIC_ACCIDENT_MODEL_FILE', 'models/traffic_accident.pt',
+            'Enos-123/traffic-accident-detection-yolo11x', 'weights/epoch61.pt',
+            '🚗 Traffic accident detector'
+        )
+        self.audio_event_model = self._load_audio_event_model()
+        self.audio_event_thresholds = {
+            'gunshot': float(os.getenv('AUDIO_GUNSHOT_THRESHOLD', '0.20')),
+            'explosion': float(os.getenv('AUDIO_EXPLOSION_THRESHOLD', '0.20')),
+        }
+        self.audio_event_streaks = defaultdict(int)
         
         # Initialize Enhanced Agent
         self.agent = EnhancedPatternAgent()
@@ -1240,7 +1267,8 @@ class EnhancedUltraSystem:
             print("🔇 Audio analyzer disabled")
         
         # Class names
-        self.class_names = {0: 'fire', 1: 'vehicle_accident', 2: 'fighting', 3: 'explosion'}
+        # Keep custom-model class ids aligned with models/dataset.yaml.
+        self.class_names = {0: 'explosion', 1: 'fire', 2: 'vehicle_accident', 3: 'smoke'}
         
         # Alert tracking
         self.alert_frames = []
@@ -1257,6 +1285,98 @@ class EnhancedUltraSystem:
         self.post_explosion_window = 60  # Boost smoke for 60 frames after explosion
         
         print("✅ System ready!\n")
+
+    def _load_yolo_event_model(self, path_env, repo_env, file_env, default_path, default_repo, default_file, label):
+        try:
+            path = os.getenv(path_env, default_path)
+            if not os.path.isfile(path):
+                path = hf_hub_download(
+                    repo_id=os.getenv(repo_env, default_repo),
+                    filename=os.getenv(file_env, default_file),
+                    local_dir=os.path.join(os.path.dirname(__file__), 'models', 'pretrained'),
+                )
+            model = YOLO(path)
+            model.to(self.device)
+            print(f"{label} loaded: {path}")
+            return model
+        except Exception as model_error:
+            print(f"⚠️ {label} unavailable: {model_error}")
+            return None
+
+    def _load_audio_event_model(self):
+        try:
+            model_path = os.getenv('YAMNET_MODEL_PATH', 'models/yamnet.onnx')
+            labels_path = os.getenv('YAMNET_LABELS_PATH', 'models/yamnet_class_map.csv')
+            if not os.path.isfile(model_path):
+                model_path = hf_hub_download(
+                    repo_id=os.getenv('YAMNET_MODEL_REPO', 'audiomagic/yamnet-onnx'),
+                    filename='yamnet.onnx',
+                    local_dir=os.path.join(os.path.dirname(__file__), 'models', 'pretrained'),
+                )
+            if not os.path.isfile(labels_path):
+                labels_path = hf_hub_download(
+                    repo_id=os.getenv('YAMNET_MODEL_REPO', 'audiomagic/yamnet-onnx'),
+                    filename='yamnet_class_map.csv',
+                    local_dir=os.path.join(os.path.dirname(__file__), 'models', 'pretrained'),
+                )
+            model = YamnetEventDetector(model_path, labels_path)
+            print(f"🔊 YAMNet gunshot/explosion audio detector loaded: {model_path}")
+            return model
+        except Exception as model_error:
+            print(f"⚠️ YAMNet audio detector unavailable: {model_error}")
+            return None
+
+    def detect_event_objects(self, frame, frame_num):
+        """Run specialized frame detectors periodically to limit CPU load."""
+        if frame_num % self.event_model_interval != 0:
+            return self.event_model_cache.copy()
+        scores = {'fire': 0.0, 'smoke': 0.0, 'accident': 0.0}
+        if self.fire_smoke_model is not None:
+            try:
+                result = self.fire_smoke_model.predict(frame, conf=0.15, verbose=False)[0]
+                for box in result.boxes if result.boxes is not None else []:
+                    label = str(result.names.get(int(box.cls[0]), '')).lower()
+                    if label in scores:
+                        scores[label] = max(scores[label], float(box.conf[0]) * 100.0)
+            except Exception as error:
+                print(f"⚠️ Fire/smoke detector inference failed: {error}")
+        if self.accident_model is not None:
+            try:
+                result = self.accident_model.predict(frame, conf=0.15, verbose=False)[0]
+                for box in result.boxes if result.boxes is not None else []:
+                    label = str(result.names.get(int(box.cls[0]), '')).lower().replace(' ', '_')
+                    if label in {'accident', 'traffic_accident', 'crash'}:
+                        scores['accident'] = max(scores['accident'], float(box.conf[0]) * 100.0)
+            except Exception as error:
+                print(f"⚠️ Accident detector inference failed: {error}")
+        self.event_model_cache = scores
+        return scores.copy()
+
+    def classify_audio_events(self, waveform, sample_rate):
+        if self.audio_event_model is None:
+            return {'gunshot': 0.0, 'explosion': 0.0}
+        try:
+            return self.audio_event_model.predict(waveform, sample_rate)
+        except Exception as error:
+            print(f"⚠️ Audio event inference failed: {error}")
+            return {'gunshot': 0.0, 'explosion': 0.0}
+
+    def reset_sequence_state(self):
+        """Clear temporal state before analyzing an independent evaluation clip."""
+        agent = self.agent
+        agent.prev_gray = None
+        for values in agent.history.values():
+            values.clear()
+        agent.detection_buffer.clear()
+        agent.current_streak.clear()
+        agent.event_start_frame.clear()
+        agent.event_durations.clear()
+        agent.temporal_tracker.event_history.clear()
+        agent.temporal_tracker.last_event_time.clear()
+        agent.temporal_tracker.event_transitions.clear()
+        for name in ('motion_history', 'brightness_history', 'edge_history', 'color_history'):
+            getattr(agent.feature_engineer, name).clear()
+        self.event_model_cache = {'fire': 0.0, 'smoke': 0.0, 'accident': 0.0}
     
     def save_alert_clip(self, buffered_frames, event_name, conf, fps, frame_size):
         """Save a short clip of the alert (buffer + 3 seconds after)"""
@@ -1360,22 +1480,26 @@ class EnhancedUltraSystem:
                 
                 processed_frame_num += 1
                 
-                # YOLO detection
-                results = self.yolo(frame, verbose=False)[0]
-                
                 # Collect YOLO detections
                 yolo_detections = {
                     'fire': 0.0,
                     'explosion': 0.0,
                     'vehicle_accident': 0.0,
-                    'fighting': 0.0
+                    'smoke': 0.0
                 }
                 
-                for box in results.boxes:
-                    cls = int(box.cls[0])
-                    conf = float(box.conf[0]) * 100
-                    class_name = self.class_names.get(cls, 'unknown')
-                    yolo_detections[class_name] = max(yolo_detections.get(class_name, 0), conf)
+                if self.has_custom_model:
+                    results = self.yolo(frame, verbose=False)[0]
+                    for box in results.boxes:
+                        cls = int(box.cls[0])
+                        conf = float(box.conf[0]) * 100
+                        class_name = self.class_names.get(cls, 'unknown')
+                        yolo_detections[class_name] = max(yolo_detections.get(class_name, 0), conf)
+
+                specialized_scores = self.detect_event_objects(frame, processed_frame_num)
+                for event_name, score in specialized_scores.items():
+                    mapped_name = 'vehicle_accident' if event_name == 'accident' else event_name
+                    yolo_detections[mapped_name] = max(yolo_detections.get(mapped_name, 0.0), score)
                 
                 # ===== OBJECT DETECTION using standard YOLO (80/20 approach) =====
                 # YOLO provides object context (20%), Agent does main detection (80%)
@@ -1424,11 +1548,16 @@ class EnhancedUltraSystem:
                 
                 # Accident: Pass vehicle detection confidence (NOT accident YOLO)
                 accident_conf, accident_reason = self.agent.analyze_accident(frame, vehicle_confidence)
-                
-                # Fighting: Pass person detection confidence (NOT fighting YOLO)
-                fighting_conf, fighting_reason = self.agent.analyze_fighting(frame, person_confidence)
-                
-                smoke_conf, smoke_reason = self.agent.analyze_smoke(frame, 0.0)
+                if specialized_scores['accident']:
+                    accident_conf = max(accident_conf, specialized_scores['accident'])
+                    accident_reason += f" | Traffic accident detector: {specialized_scores['accident']:.0f} raw score"
+                smoke_conf, smoke_reason = self.agent.analyze_smoke(frame, yolo_detections['smoke'])
+                if specialized_scores['fire']:
+                    fire_conf = max(fire_conf, specialized_scores['fire'])
+                    fire_reason += f" | Fire detector: {specialized_scores['fire']:.0f} raw score"
+                if specialized_scores['smoke']:
+                    smoke_conf = max(smoke_conf, specialized_scores['smoke'])
+                    smoke_reason += f" | Smoke detector: {specialized_scores['smoke']:.0f} raw score"
                 
                 # Update feature engineer history
                 current_motion = list(self.agent.history['motion_flow'])[-1] if self.agent.history['motion_flow'] else 0.0
@@ -1447,33 +1576,26 @@ class EnhancedUltraSystem:
                     end_frame = frame_num + audio_window // 2
                     
                     # Get audio confidence for each event type
-                    audio_results = {
-                        'explosion': self.audio_analyzer.analyze_audio_segment(self.audio_data, start_frame, end_frame, fps, 'explosion'),
-                        'fire': self.audio_analyzer.analyze_audio_segment(self.audio_data, start_frame, end_frame, fps, 'fire'),
-                        'vehicle_accident': self.audio_analyzer.analyze_audio_segment(self.audio_data, start_frame, end_frame, fps, 'vehicle_accident'),
-                        'fighting': self.audio_analyzer.analyze_audio_segment(self.audio_data, start_frame, end_frame, fps, 'fighting')
-                    }
-                    
-                    audio_confidences = {k: v[0] for k, v in audio_results.items()}
-                    audio_reasons = {k: v[1] for k, v in audio_results.items()}
-                    
-                    # Audio BOOST: Add 15% of audio confidence as bonus (keeps video agent dominant)
-                    # This way strong audio (80-100%) adds 12-15% boost, weak audio (0-20%) adds 0-3%
-                    if audio_confidences['explosion'] > 50:
-                        explosion_conf = min(100, explosion_conf + (audio_confidences['explosion'] * 0.15))
-                        explosion_reason += f" | Audio: {audio_reasons['explosion']}"
-                    
-                    if audio_confidences['fire'] > 50:
-                        fire_conf = min(100, fire_conf + (audio_confidences['fire'] * 0.15))
-                        fire_reason += f" | Audio: {audio_reasons['fire']}"
-                    
-                    if audio_confidences['vehicle_accident'] > 50:
-                        accident_conf = min(100, accident_conf + (audio_confidences['vehicle_accident'] * 0.15))
-                        accident_reason += f" | Audio: {audio_reasons['vehicle_accident']}"
-                    
-                    if audio_confidences['fighting'] > 50:
-                        fighting_conf = min(100, fighting_conf + (audio_confidences['fighting'] * 0.15))
-                        fighting_reason += f" | Audio: {audio_reasons['fighting']}"
+                    audio_start = max(0, int((start_frame / fps) * self.audio_sr))
+                    audio_end = min(len(self.audio_data), int((end_frame / fps) * self.audio_sr))
+                    audio_scores = self.classify_audio_events(
+                        self.audio_data[audio_start:audio_end], self.audio_sr
+                    )
+                    for event_name, score in audio_scores.items():
+                        self.audio_event_streaks[event_name] = (
+                            self.audio_event_streaks[event_name] + 1
+                            if score >= self.audio_event_thresholds[event_name] else 0
+                        )
+                    if self.audio_event_streaks['explosion'] >= 2:
+                        explosion_conf = max(explosion_conf, audio_scores['explosion'] * 100.0)
+                        explosion_reason += f" | YAMNet explosion score: {audio_scores['explosion']:.2f}"
+                    gunshot_conf = (
+                        audio_scores['gunshot'] * 100.0
+                        if self.audio_event_streaks['gunshot'] >= 2 else 0.0
+                    )
+                    gunshot_reason = f"YAMNet gunshot score: {audio_scores['gunshot']:.2f}"
+                else:
+                    gunshot_conf, gunshot_reason = 0.0, 'No audio input'
                 
                 # ===== FEATURE ENGINEERING ENHANCEMENTS =====
                 # Detect brightness and motion spikes for better explosion/accident detection
@@ -1501,11 +1623,6 @@ class EnhancedUltraSystem:
                     # Flickering confirms fire
                     fire_conf = min(100, fire_conf + 12)
                     fire_reason += f" | Flickering: {flickering_val:.0f}"
-                
-                if sustained_activity and fighting_conf > 30:
-                    # Sustained activity confirms fighting
-                    fighting_conf = min(100, fighting_conf + 15)
-                    fighting_reason += f" | Sustained: {sustained_ratio:.1%}"
                 
                 # ===== ADVANCED EVENT SEQUENCING with TemporalEventTracker =====
                 # Apply sequence boosts and cooldowns based on event history
@@ -1541,10 +1658,6 @@ class EnhancedUltraSystem:
                     accident_conf *= 0.5
                     accident_reason += " | Cooldown penalty (×0.5)"
                 
-                if self.agent.temporal_tracker.check_cooldown('fighting', frame_num):
-                    fighting_conf *= 0.6
-                    fighting_reason += " | Cooldown penalty (×0.6)"
-                
                 if self.agent.temporal_tracker.check_cooldown('smoke', frame_num):
                     smoke_conf *= 0.7
                     smoke_reason += " | Cooldown penalty (×0.7)"
@@ -1554,8 +1667,8 @@ class EnhancedUltraSystem:
                     'EXPLOSION': (explosion_conf, explosion_reason),
                     'FIRE': (fire_conf, fire_reason),
                     'ACCIDENT': (accident_conf, accident_reason),
-                    'FIGHTING': (fighting_conf, fighting_reason),
-                    'SMOKE': (smoke_conf, smoke_reason)
+                    'SMOKE': (smoke_conf, smoke_reason),
+                    'GUNSHOT': (gunshot_conf, gunshot_reason)
                 }
                 
                 # ===== EVENT OVERLAP RESOLUTION =====
@@ -1571,9 +1684,17 @@ class EnhancedUltraSystem:
                     'EXPLOSION': self.agent.thresholds.get('explosion', {}).get('confidence', 70.0),
                     'FIRE': self.agent.thresholds.get('fire', {}).get('confidence', 65.0),
                     'ACCIDENT': self.agent.thresholds.get('accident', {}).get('confidence', 65.0),
-                    'FIGHTING': self.agent.thresholds.get('fighting', {}).get('confidence', 65.0),
-                    'SMOKE': self.agent.thresholds.get('smoke', {}).get('confidence', 60.0)
+                    'SMOKE': self.agent.thresholds.get('smoke', {}).get('confidence', 60.0),
+                    'GUNSHOT': 65.0
                 }
+                # Specialized detectors use configurable raw score cutoffs;
+                # don't then reject their accepted detections at the legacy
+                # heuristic's higher confidence threshold.
+                if self.fire_smoke_model is not None:
+                    threshold_map['FIRE'] = min(threshold_map['FIRE'], self.fire_smoke_confidence * 100)
+                    threshold_map['SMOKE'] = min(threshold_map['SMOKE'], self.fire_smoke_confidence * 100)
+                if self.accident_model is not None:
+                    threshold_map['ACCIDENT'] = min(threshold_map['ACCIDENT'], self.accident_confidence * 100)
                 
                 # Check which events passed threshold
                 candidates = {}
@@ -1596,13 +1717,6 @@ class EnhancedUltraSystem:
                             validated_events.append(('ACCIDENT', detections['ACCIDENT'][0], detections['ACCIDENT'][1] + " | Fire present"))
                         else:
                             validated_events.append(('FIRE', detections['FIRE'][0], detections['FIRE'][1]))
-                    
-                    # Rule 3: Fighting + Accident → Prioritize Fighting if no vehicles
-                    elif 'FIGHTING' in candidates and 'ACCIDENT' in candidates:
-                        if yolo_detections.get('vehicle_accident', 0) < 20:
-                            validated_events.append(('FIGHTING', detections['FIGHTING'][0], detections['FIGHTING'][1]))
-                        else:
-                            validated_events.append(('ACCIDENT', detections['ACCIDENT'][0], detections['ACCIDENT'][1]))
                     
                     # Rule 4: Fire + Smoke → Keep Fire (smoke is byproduct)
                     elif 'FIRE' in candidates and 'SMOKE' in candidates:
@@ -1647,8 +1761,8 @@ class EnhancedUltraSystem:
                     'EXPLOSION': explosion_conf,
                     'FIRE': fire_conf,
                     'ACCIDENT': accident_conf,
-                    'FIGHTING': fighting_conf,
-                    'SMOKE': smoke_conf
+                    'SMOKE': smoke_conf,
+                    'GUNSHOT': gunshot_conf
                 }
                 self.agent.detection_buffer.append(buffer_entry)
                 
@@ -1691,8 +1805,7 @@ class EnhancedUltraSystem:
                         f.write(f"{timestamp},{frame_num},{explosion_conf:.2f},{yolo_detections['explosion']:.2f},")
                         f.write(f"{fire_conf:.2f},{yolo_detections['fire']:.2f},")
                         f.write(f"{accident_conf:.2f},{yolo_detections['vehicle_accident']:.2f},")
-                        f.write(f"{fighting_conf:.2f},{yolo_detections['fighting']:.2f},")
-                        f.write(f"{smoke_conf:.2f},{flow_motion:.2f},{edge_density:.2f},{brightness:.2f},")
+                        f.write(f"{smoke_conf:.2f},{gunshot_conf:.2f},{flow_motion:.2f},{edge_density:.2f},{brightness:.2f},")
                         f.write(f"{top_event},{top_conf:.2f}\n")
                     
                     # Check if this is a NEW event (different from current)
@@ -1712,10 +1825,6 @@ class EnhancedUltraSystem:
                         # Add vehicle detection info for accidents
                         if top_event == 'ACCIDENT' and self.has_vehicle_detection:
                             output_msg += f" | 🚗 Vehicles: {vehicle_count} detected ({vehicle_confidence:.0f}%)"
-                        
-                        # Add person detection info for fighting
-                        if top_event == 'FIGHTING' and self.has_vehicle_detection:
-                            output_msg += f" | 👥 People: {person_count} detected ({person_confidence:.0f}%)"
                         
                         # Add audio info if available
                         if self.use_audio and audio_confidences:
@@ -1792,22 +1901,26 @@ class EnhancedUltraSystem:
         Returns detection results as dictionary (no video writing)
         """
         try:
-            # YOLO detection
-            results = self.yolo(frame, verbose=False)[0]
-            
             # Collect YOLO detections
             yolo_detections = {
                 'fire': 0.0,
                 'explosion': 0.0,
                 'vehicle_accident': 0.0,
-                'fighting': 0.0
+                'smoke': 0.0
             }
             
-            for box in results.boxes:
-                cls = int(box.cls[0])
-                conf = float(box.conf[0]) * 100
-                class_name = self.class_names.get(cls, 'unknown')
-                yolo_detections[class_name] = max(yolo_detections.get(class_name, 0), conf)
+            if self.has_custom_model:
+                results = self.yolo(frame, verbose=False)[0]
+                for box in results.boxes:
+                    cls = int(box.cls[0])
+                    conf = float(box.conf[0]) * 100
+                    class_name = self.class_names.get(cls, 'unknown')
+                    yolo_detections[class_name] = max(yolo_detections.get(class_name, 0), conf)
+
+            specialized_scores = self.detect_event_objects(frame, frame_num)
+            for event_name, score in specialized_scores.items():
+                mapped_name = 'vehicle_accident' if event_name == 'accident' else event_name
+                yolo_detections[mapped_name] = max(yolo_detections.get(mapped_name, 0.0), score)
             
             # Object detection (vehicles + people)
             vehicle_confidence = 0.0
@@ -1838,8 +1951,16 @@ class EnhancedUltraSystem:
             explosion_conf, explosion_reason = self.agent.analyze_explosion(frame, yolo_detections['explosion'])
             fire_conf, fire_reason = self.agent.analyze_fire(frame, yolo_detections['fire'])
             accident_conf, accident_reason = self.agent.analyze_accident(frame, vehicle_confidence)
-            fighting_conf, fighting_reason = self.agent.analyze_fighting(frame, person_confidence)
-            smoke_conf, smoke_reason = self.agent.analyze_smoke(frame, 0.0)
+            smoke_conf, smoke_reason = self.agent.analyze_smoke(frame, yolo_detections['smoke'])
+            if specialized_scores['fire']:
+                fire_conf = max(fire_conf, specialized_scores['fire'])
+                fire_reason += f" | Fire detector: {specialized_scores['fire']:.0f} raw score"
+            if specialized_scores['smoke']:
+                smoke_conf = max(smoke_conf, specialized_scores['smoke'])
+                smoke_reason += f" | Smoke detector: {specialized_scores['smoke']:.0f} raw score"
+            if specialized_scores['accident']:
+                accident_conf = max(accident_conf, specialized_scores['accident'])
+                accident_reason += f" | Traffic accident detector: {specialized_scores['accident']:.0f} raw score"
             
             # Get motion spike
             motion_spike = list(self.agent.history['motion_flow'])[-1] if self.agent.history['motion_flow'] else 0.0
@@ -1849,8 +1970,8 @@ class EnhancedUltraSystem:
                 'EXPLOSION': explosion_conf,
                 'FIRE': fire_conf,
                 'ACCIDENT': accident_conf,
-                'FIGHTING': fighting_conf,
-                'SMOKE': smoke_conf
+                'SMOKE': smoke_conf,
+                'GUNSHOT': 0.0
             }
             
             top_event = max(detections, key=detections.get)
@@ -1867,16 +1988,28 @@ class EnhancedUltraSystem:
                 risk_level = 'LOW'
             
             # Return result
+            detector_thresholds = {
+                'FIRE': self.fire_smoke_confidence,
+                'SMOKE': self.fire_smoke_confidence,
+                'ACCIDENT': self.accident_confidence,
+            }
+            specialized_detection = any(
+                specialized_scores[event.lower() if event != 'ACCIDENT' else 'accident'] >= threshold * 100
+                for event, threshold in detector_thresholds.items()
+                if (self.fire_smoke_model is not None if event in {'FIRE', 'SMOKE'} else self.accident_model is not None)
+            )
             return {
-                'event': top_event if top_conf >= 65 else 'normal',
+                'event': top_event if top_conf >= 65 or specialized_detection else 'normal',
                 'confidence': top_conf,
+                'candidate_event': top_event.lower(),
+                'candidate_confidence': top_conf,
                 'risk_level': risk_level,
                 'reasoning': {
                     'explosion': explosion_reason,
                     'fire': fire_reason,
                     'accident': accident_reason,
-                    'fighting': fighting_reason,
-                    'smoke': smoke_reason
+                    'smoke': smoke_reason,
+                    'gunshot': 'Gunshot analysis uses the audio input endpoint.'
                 },
                 'objects': {
                     'vehicles': vehicle_count,
