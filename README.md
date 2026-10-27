@@ -35,10 +35,10 @@ The project is a prototype. Its detections are advisory and need evaluation on r
 | --- | --- | --- |
 | Fire, smoke, accident | Event-specific confidence threshold and 2 matching results in the last 3 inference samples | Critical requires 3 matching samples and at least 85% confidence |
 | Explosion in video | Same 2-of-3 confirmation; visual evidence is checked for the event | A strong fast path can mark critical at 95% only when at least 3 explosion cues agree; otherwise critical requires 3 samples |
-| Gunshot/explosion audio | Two consecutive audio windows above the configured YAMNet threshold | Score at or above 0.75 is critical; lower confirmed scores are high |
+| Gunshot/explosion audio | YAMNet event score ≥0.65 in one window, or ≥0.30 in two consecutive windows | Strong matches respond in one ~1-second analysis window; lower scores need temporal confirmation. Score ≥0.75 is critical; lower confirmed scores are high. |
 | Repeated same event | One camera/event incident is updated during a 120-second window | The incident keeps the highest severity and refreshed evidence on escalation |
 
-Video evidence is saved as JPEG; audio evidence as WAV. Evidence stays under `data/alerts/` and is excluded from Git. Email, SMS, and push delivery are not connected yet; the current alerting path is local to the dashboard and API.
+Video evidence is saved as JPEG; audio evidence as WAV. Operators can preview snapshots or play audio evidence directly in the dashboard. Evidence stays under `data/alerts/` and is excluded from Git. External delivery remains behind a rollout gate: at least 20 human-reviewed examples per event class and ≥90% precision for that class. Those class metrics appear in Settings, but delivery providers must be configured separately; no external messages are sent yet. The intended first channel is email/push for confirmed high-severity alerts, with SMS reserved for critical alerts only.
 
 ## ▧ Architecture
 

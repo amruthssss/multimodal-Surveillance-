@@ -762,6 +762,7 @@ def get_active_alerts_data():
             'occurrences': row.occurrences,
             'message': f"{row.occurrences} detection{'s' if row.occurrences != 1 else ''} · {row.camera_id}",
             'evidenceUrl': f"/api/alerts/{row.id}/evidence" if row.evidence_path else None,
+            'evidenceType': Path(row.evidence_path).suffix.lower().lstrip('.') if row.evidence_path else None,
             'acknowledged': row.acknowledged_at is not None,
             'acknowledgedAt': row.acknowledged_at.isoformat() if row.acknowledged_at else None,
             'reasoning': row.reasoning,
@@ -1080,6 +1081,7 @@ def get_active_alerts():
             'source': alert['source'],
             'occurrences': alert['occurrences'],
             'evidenceUrl': alert['evidenceUrl'],
+            'evidenceType': alert['evidenceType'],
             'acknowledged': alert['acknowledged'],
             'acknowledgedAt': alert['acknowledgedAt'],
         } for alert in alerts[:50]])
@@ -1252,13 +1254,19 @@ def analyze_audio_window():
         with inference_lock:
             scores = system.classify_audio_events(samples, sample_rate)
         thresholds = {
-            'gunshot': float(os.getenv('AUDIO_GUNSHOT_THRESHOLD', '0.20')),
-            'explosion': float(os.getenv('AUDIO_EXPLOSION_THRESHOLD', '0.20')),
+            'gunshot': float(os.getenv('AUDIO_GUNSHOT_THRESHOLD', '0.30')),
+            'explosion': float(os.getenv('AUDIO_EXPLOSION_THRESHOLD', '0.30')),
+        }
+        strong_thresholds = {
+            'gunshot': float(os.getenv('AUDIO_GUNSHOT_STRONG_THRESHOLD', '0.65')),
+            'explosion': float(os.getenv('AUDIO_EXPLOSION_STRONG_THRESHOLD', '0.65')),
         }
         events = {}
         for label, score in scores.items():
+            # A strong YAMNet hit can confirm an impulse event in one window;
+            # weaker scores need two consecutive windows to avoid noisy alerts.
             audio_event_streaks[label] = audio_event_streaks[label] + 1 if score >= thresholds[label] else 0
-            events[label] = audio_event_streaks[label] >= 2
+            events[label] = score >= strong_thresholds[label] or audio_event_streaks[label] >= 2
             if events[label]:
                 record_alert_event(
                     label,
