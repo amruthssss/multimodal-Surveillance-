@@ -14,6 +14,12 @@ foreach ($requiredPath in $requiredPaths) {
     }
 }
 
+$pythonPath = Join-Path $projectRoot 'venv\Scripts\python.exe'
+& $pythonPath -c 'import cv2, flask, flask_socketio, librosa, numpy, onnxruntime, requests, sqlalchemy, torch' *> $null
+if ($LASTEXITCODE -ne 0) {
+    throw 'Python dependencies are missing. Activate venv and run: python -m pip install -r requirements.txt'
+}
+
 Start-Process powershell -ArgumentList '-NoExit', '-Command', "Set-Location '$projectRoot'; .\venv\Scripts\python.exe app.py"
 Start-Process powershell -ArgumentList '-NoExit', '-Command', "Set-Location '$projectRoot\surveillance-backend'; npm start"
 Start-Process powershell -ArgumentList '-NoExit', '-Command', "Set-Location '$projectRoot\surveillance-frontend'; npm run dev"

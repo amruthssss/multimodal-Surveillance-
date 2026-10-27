@@ -13,6 +13,12 @@ if not exist "venv\Scripts\python.exe" (
   pause
   exit /b 1
 )
+venv\Scripts\python.exe -c "import cv2, flask, flask_socketio, librosa, numpy, onnxruntime, requests, sqlalchemy, torch" >nul 2>&1
+if errorlevel 1 (
+  echo Python dependencies are missing. Activate venv and run: python -m pip install -r requirements.txt
+  pause
+  exit /b 1
+)
 if not exist "surveillance-backend\node_modules" (
   echo Missing Node dependencies. Run npm install in surveillance-backend first.
   pause
